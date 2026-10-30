@@ -10,7 +10,20 @@ export default function RequireAuth() {
     return <main className="auth-loading" role="status">Checking your owner sign-in…</main>
   }
 
-  if (!authEnabled || status === 'authenticated') return <Outlet />
+  if (!authEnabled) {
+    return (
+      <main className="auth-loading">
+        <section className="storage-recovery-card" role="alert">
+          <span className="eyebrow">SECURE OWNER ACCESS</span>
+          <h1>Firebase Authentication is not configured</h1>
+          <p>TailorPro requires Firebase Authentication and Firestore to access business data.</p>
+          <p>Set the required VITE_FIREBASE values and VITE_DATA_REPOSITORY=firestore in .env.local, then restart the app.</p>
+        </section>
+      </main>
+    )
+  }
+
+  if (status === 'authenticated') return <Outlet />
 
   if (status === 'error') {
     return (

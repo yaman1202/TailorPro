@@ -514,6 +514,79 @@ test('a newly created customer is immediately usable by an order without replaci
   assert.deepEqual(after.data.orders.filter((record) => record.id !== order.id), before.data.orders)
 })
 
+test('Firestore business writes persist after reload and owner reauthentication', async () => {
+  await seedData()
+  const repository = createRepository()
+  const customer = await repository.addRecord('customers', {
+    name: 'Persistence Customer',
+    phone: '555-0186',
+    joined: '2026-10-31',
+  })
+  const measurement = {
+    ...initialData.measurements[0],
+    id: 'persistence-measurement',
+    customerId: customer.record.id,
+    customer: customer.record.name,
+    values: Object.fromEntries(
+      measurementFields[initialData.measurements[0].garment].map((field) => [field, '40']),
+    ),
+    version: 1,
+    date: '2026-10-31',
+  }
+  await repository.addRecord('measurements', measurement)
+
+  const order = makeOrder('persistence-order', {
+    customerId: customer.record.id,
+    customer: customer.record.name,
+    measurementId: measurement.id,
+    amount: 1000,
+    advance: 100,
+  })
+  await repository.createOrder(
+    order,
+    makePayment('persistence-advance', order, 100, { type: 'Advance' }),
+  )
+  await repository.recordPayment(makePayment('persistence-payment', order, 200))
+  await repository.addRecord('staff', {
+    id: 'persistence-staff',
+    name: 'Persistence Tailor',
+    role: 'Tailor',
+    phone: '555-0176',
+    email: '',
+    active: true,
+  })
+  await repository.addRecord('inventory', {
+    id: 'persistence-inventory',
+    name: 'Persistence linen',
+    category: 'Fabric',
+    sku: 'PERSIST-FAB-1',
+    quantity: 5,
+    unit: 'metres',
+    reorderAt: 1,
+    price: 20,
+  })
+  await repository.updateSettings({ businessName: 'Persistent TailorPro' })
+
+  const reauthenticatedFirestore = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const reauthenticatedRepository = createRepository({
+    firestore: reauthenticatedFirestore,
+    user: { uid: ownerUid },
+  })
+  const refreshed = await reauthenticatedRepository.load()
+
+  assert.equal(refreshed.status, 'ready')
+  assert.equal(refreshed.data.customers.some((record) => record.id === customer.record.id), true)
+  assert.equal(refreshed.data.measurements.some((record) => record.id === measurement.id), true)
+  assert.equal(refreshed.data.orders.some((record) => record.id === order.id), true)
+  assert.deepEqual(
+    refreshed.data.payments.filter((record) => record.orderId === order.id).map((record) => record.id).sort(),
+    ['persistence-advance', 'persistence-payment'],
+  )
+  assert.equal(refreshed.data.staff.some((record) => record.id === 'persistence-staff'), true)
+  assert.equal(refreshed.data.inventory.some((record) => record.id === 'persistence-inventory'), true)
+  assert.equal(refreshed.data.settings.businessName, 'Persistent TailorPro')
+})
+
 test('order creation and advance ledger writes commit atomically', async () => {
   await seedData()
   const repository = createRepository()

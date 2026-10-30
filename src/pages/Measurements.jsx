@@ -116,7 +116,7 @@ export default function Measurements() {
     </TableFrame>
     {modalOpen && <Modal title="Save measurements" description="A new version will be created. Previous measurements are never replaced." onClose={() => setModalOpen(false)} wide><form onSubmit={save} className="form-stack">
       <div className="form-grid">
-        <FormField label="Customer"><Select required value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}><option value="">Select a customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</Select></FormField>
+        <FormField label="Customer"><Select required value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}><option value="">Select a customer</option>{customers.filter((customer) => !customer.archived || customer.id === form.customerId).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</Select></FormField>
         <FormField label="Garment profile"><Select value={form.garment} onChange={(event) => setGarment(event.target.value)}>{measurementTemplates.map(({ group, garments }) => <optgroup key={group} label={group}>{garments.map(({ name }) => <option key={name}>{name}</option>)}</optgroup>)}</Select></FormField>
         <FormField label="Measurement unit"><Select value={form.unit} onChange={(event) => setUnit(event.target.value)}><option value="in">Inches (in)</option><option value="cm">Centimetres (cm)</option></Select></FormField>
       </div>

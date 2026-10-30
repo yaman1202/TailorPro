@@ -28,10 +28,11 @@ const isInvalid = (validation, message) => {
 
 test('customer validator enforces identity, required contact fields, and email format', () => {
   isValid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555-0101', email: 'asha@example.com' }))
-  isValid(validateCustomer({ id: 'customer-2', name: 'Mina', phone: '555-0102', address: '12 Park Road', city: 'Pune' }))
+  isValid(validateCustomer({ id: 'customer-2', name: 'Mina', phone: '555-0102', address: '12 Park Road', city: 'Pune', archived: true }))
   isInvalid(validateCustomer({ id: 'customer-1', name: ' ', phone: '' }), /name is required.*phone is required/i)
   isInvalid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555', email: 'not-an-email' }), /valid email/i)
   isInvalid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555', address: 12 }), /address must be text/i)
+  isInvalid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555', archived: 'yes' }), /archived must be a boolean/i)
   isInvalid(validateCustomer({ name: 'Asha', phone: '555' }), /id is required/i)
 })
 

@@ -91,6 +91,18 @@ export function AppProvider({ children, repository: providedRepository }) {
     }
   }, [repository, handleRepositoryError])
 
+  const archiveCustomer = useCallback(async (id, archived = true) => {
+    try {
+      const result = await repository.updateRecord('customers', id, { archived })
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return result.record
+    } catch (error) {
+      handleRepositoryError(error, archived ? 'archive customer' : 'restore customer')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
   const updateRecord = useCallback(async (collection, id, updates) => {
     try {
       const result = await repository.updateRecord(collection, id, updates)
@@ -212,6 +224,7 @@ export function AppProvider({ children, repository: providedRepository }) {
     storageState,
     addRecord,
     createCustomer,
+    archiveCustomer,
     updateRecord,
     deleteRecord,
     createOrder,
@@ -222,7 +235,7 @@ export function AppProvider({ children, repository: providedRepository }) {
     updateSettings,
     replaceData,
     retryStorageSave,
-  }), [data, storageState, addRecord, createCustomer, updateRecord, deleteRecord, createOrder, updateOrder, transitionOrder, recordPayment, exportBackup, updateSettings, replaceData, retryStorageSave])
+  }), [data, storageState, addRecord, createCustomer, archiveCustomer, updateRecord, deleteRecord, createOrder, updateOrder, transitionOrder, recordPayment, exportBackup, updateSettings, replaceData, retryStorageSave])
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>
 }

@@ -1,6 +1,6 @@
 import { getAuth } from 'firebase/auth'
 
-export const FIRESTORE_BUSINESS_ID = 'tailorpro-dev-802c2'
+export const FIRESTORE_BUSINESS_ID = import.meta.env?.VITE_FIREBASE_BUSINESS_ID || 'tailorpro-dev-802c2'
 
 export async function getOwnerFirestore() {
   const { default: firebaseApp } = await import('./firebaseApp.js')

@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Mail, MapPin, Pencil, Phone, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Mail, MapPin, Pencil, Phone } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
-import { AddButton, Button, FormField, Modal, PageHeading, SearchBox, TableFrame } from '../components/UI.jsx'
+import { AddButton, Button, FormField, Modal, PageHeading, SearchBox, Select, TableFrame } from '../components/UI.jsx'
 import DataTable from '../components/DataTable.jsx'
-import { validateDeletion, validateEntity } from '../services/validation.js'
+import { validateEntity } from '../services/validation.js'
 
 const blank = { name: '', phone: '', email: '', address: '', city: '' }
 
 export default function Customers() {
-  const { customers, orders, measurements, payments, staff, inventory, createCustomer, updateRecord, deleteRecord } = useAppData()
+  const { customers, orders, measurements, payments, staff, inventory, createCustomer, updateRecord } = useAppData()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
   const [editing, setEditing] = useState(null)
@@ -16,9 +16,23 @@ export default function Customers() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
-  const filtered = useMemo(() => customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email} ${customer.city}`.toLowerCase().includes(query.toLowerCase())), [customers, query])
+  const [archiveFilter, setArchiveFilter] = useState('Active')
+
+  const filtered = useMemo(() => {
+    return customers.filter((customer) => {
+      const matchesSearch = `${customer.name} ${customer.phone} ${customer.email || ''} ${customer.city || ''}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+      if (!matchesSearch) return false
+      if (archiveFilter === 'Active') return !customer.archived
+      if (archiveFilter === 'Archived') return Boolean(customer.archived)
+      return true
+    })
+  }, [customers, query, archiveFilter])
+
   const openNew = () => { setEditing(null); setForm(blank); setFeedback(null); setSelected(null); setModalOpen(true) }
   const openEdit = (customer) => { setEditing(customer); setForm({ name: customer.name, phone: customer.phone, email: customer.email || '', address: customer.address || '', city: customer.city || '' }); setFeedback(null); setSelected(null); setModalOpen(true) }
+
   const save = async (event) => {
     event.preventDefault()
     if (saving) return
@@ -51,38 +65,114 @@ export default function Customers() {
       }
       setEditing(null)
       setModalOpen(false)
-      setFeedback({ type: 'success', text: `${saved.name} was added to your customers.` })
+      setFeedback({ type: 'success', text: `${saved.name} was saved.` })
     } finally {
       setSaving(false)
     }
   }
-  const remove = (customer) => {
-    const validation = validateDeletion('customers', customer, { orders, measurements })
-    if (!validation.valid) {
-      window.alert(validation.error)
-      return
+
+  const toggleArchive = async (customer) => {
+    if (customer.archived) {
+      const saved = await updateRecord('customers', customer.id, { archived: false })
+      if (saved) {
+        setFeedback({ type: 'success', text: `${customer.name} was restored to active customers.` })
+        if (selected?.id === customer.id) setSelected({ ...customer, archived: false })
+      }
+    } else {
+      if (window.confirm(`Archive ${customer.name}? Historical orders and measurement records will be preserved.`)) {
+        const saved = await updateRecord('customers', customer.id, { archived: true })
+        if (saved) {
+          setFeedback({ type: 'success', text: `${customer.name} was archived.` })
+          if (selected?.id === customer.id) setSelected({ ...customer, archived: true })
+        }
+      }
     }
-    if (window.confirm(`Delete ${customer.name}?`)) deleteRecord('customers', customer.id)
   }
+
   const columns = [
-    { key: 'name', label: 'CUSTOMER', render: (customer) => <button className="customer-button" onClick={() => setSelected(customer)}><span className="mini-avatar">{customer.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><span><strong>{customer.name}</strong><small>Joined {new Date(`${customer.joined}T12:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</small></span></button> },
+    {
+      key: 'name',
+      label: 'CUSTOMER',
+      render: (customer) => (
+        <button className="customer-button" onClick={() => setSelected(customer)}>
+          <span className="mini-avatar">{customer.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span>
+          <span>
+            <strong>{customer.name} {customer.archived && <span className="count-pill">Archived</span>}</strong>
+            <small>Joined {new Date(`${customer.joined}T12:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</small>
+          </span>
+        </button>
+      ),
+    },
     { key: 'phone', label: 'PHONE', render: (customer) => <span className="contact-cell"><Phone size={14} />{customer.phone}</span> },
     { key: 'email', label: 'EMAIL', render: (customer) => <span className="muted-cell">{customer.email || '—'}</span> },
     { key: 'city', label: 'LOCATION', render: (customer) => <span className="contact-cell"><MapPin size={14} />{customer.city || '—'}</span> },
     { key: 'orders', label: 'ORDERS', render: (customer) => <span className="count-pill">{orders.filter((order) => order.customerId === customer.id).length}</span> },
-    { key: 'actions', label: '', render: (customer) => <span className="row-actions"><button title="Edit customer" aria-label="Edit customer" onClick={() => openEdit(customer)}><Pencil size={15} /></button><button title="Delete customer" aria-label="Delete customer" onClick={() => remove(customer)}><Trash2 size={15} /></button></span> },
+    {
+      key: 'actions',
+      label: '',
+      render: (customer) => (
+        <span className="row-actions">
+          <button title="Edit customer" aria-label="Edit customer" onClick={() => openEdit(customer)}>
+            <Pencil size={15} />
+          </button>
+          <button
+            title={customer.archived ? 'Restore customer' : 'Archive customer'}
+            aria-label={customer.archived ? 'Restore customer' : 'Archive customer'}
+            onClick={() => toggleArchive(customer)}
+          >
+            {customer.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+          </button>
+        </span>
+      ),
+    },
   ]
+
+  const activeCount = customers.filter((c) => !c.archived).length
+  const archivedCount = customers.filter((c) => c.archived).length
 
   return <>
     <PageHeading eyebrow="YOUR CLIENTELE" title="Customers" description="Build lasting relationships with every fitting." action={<AddButton onClick={openNew}>Add customer</AddButton>} />
     {feedback && <div className={`customer-feedback customer-feedback-${feedback.type}`} role={feedback.type === 'error' ? 'alert' : 'status'}>{feedback.text}</div>}
-    <div className="page-summary"><span><strong>{customers.length}</strong> customers in your studio</span><span>Keep every fitting personal.</span></div>
+    <div className="page-summary">
+      <span><strong>{activeCount}</strong> active {activeCount === 1 ? 'customer' : 'customers'} {archivedCount > 0 && `(${archivedCount} archived)`}</span>
+      <span>Keep every fitting personal.</span>
+    </div>
     <TableFrame title="All customers" note="Customer profiles and contact details">
-      <div className="toolbar-inline"><SearchBox value={query} onChange={setQuery} placeholder="Search name, phone or email..." /><span className="result-count">{filtered.length} results</span></div>
+      <div className="toolbar-inline">
+        <SearchBox value={query} onChange={setQuery} placeholder="Search name, phone or email..." />
+        <Select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value)}>
+          <option value="Active">Active customers</option>
+          <option value="Archived">Archived customers</option>
+          <option value="All">All customers</option>
+        </Select>
+        <span className="result-count">{filtered.length} results</span>
+      </div>
       <DataTable columns={columns} rows={filtered} emptyMessage="No customers match your search." />
     </TableFrame>
     {modalOpen && <CustomerForm editing={editing} form={form} setForm={setForm} onSave={save} onClose={() => setModalOpen(false)} saving={saving} feedback={feedback} />}
-    {selected && <Modal title={selected.name} description="Customer profile" onClose={() => setSelected(null)}><div className="profile-details"><div className="profile-avatar large">{selected.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}</div><span><Mail size={15} />{selected.email || 'No email saved'}</span><span><Phone size={15} />{selected.phone}</span><span><MapPin size={15} />{[selected.address, selected.city].filter(Boolean).join(', ') || 'No address saved'}</span></div><div className="modal-section"><h3>Order history</h3>{orders.filter((order) => order.customerId === selected.id).map((order) => <div className="history-row" key={order.id}><span><strong>{order.id}</strong><small>{order.garment}</small></span><span>{order.status}</span></div>)}{!orders.some((order) => order.customerId === selected.id) && <p className="form-hint">No orders yet.</p>}</div><div className="modal-actions"><Button variant="secondary" onClick={() => openEdit(selected)}>Edit profile</Button><Button onClick={() => setSelected(null)}>Done</Button></div></Modal>}
+    {selected && <Modal title={selected.name} description={selected.archived ? 'Customer profile (Archived)' : 'Customer profile'} onClose={() => setSelected(null)}>
+      <div className="profile-details">
+        <div className="profile-avatar large">{selected.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}</div>
+        <span><Mail size={15} />{selected.email || 'No email saved'}</span>
+        <span><Phone size={15} />{selected.phone}</span>
+        <span><MapPin size={15} />{[selected.address, selected.city].filter(Boolean).join(', ') || 'No address saved'}</span>
+      </div>
+      <div className="modal-section">
+        <h3>Order history</h3>
+        {orders.filter((order) => order.customerId === selected.id).map((order) => (
+          <div className="history-row" key={order.id}>
+            <span><strong>{order.id}</strong><small>{order.garment}</small></span>
+            <span>{order.status}</span>
+          </div>
+        ))}
+        {!orders.some((order) => order.customerId === selected.id) && <p className="form-hint">No orders yet.</p>}
+      </div>
+      <div className="modal-actions">
+        <Button variant="secondary" onClick={() => openEdit(selected)}>Edit profile</Button>
+        <Button variant="secondary" onClick={() => toggleArchive(selected)}>{selected.archived ? 'Restore customer' : 'Archive customer'}</Button>
+        <Button onClick={() => setSelected(null)}>Done</Button>
+      </div>
+    </Modal>}
   </>
 }
 

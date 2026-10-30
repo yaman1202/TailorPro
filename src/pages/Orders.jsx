@@ -68,6 +68,11 @@ export default function Orders() {
       setSavingOrder(false)
       return
     }
+    if (!editing && customer.archived) {
+      setCustomerFeedback({ type: 'error', text: 'Cannot create a new order for an archived customer. Restore the customer first.' })
+      setSavingOrder(false)
+      return
+    }
     const orderValues = { customerId: customer.id, customer: customer.name, garment: form.garment, ...(editing ? { measurementId: form.measurementId || null } : form.measurementId ? { measurementId: form.measurementId } : {}), tailor: form.tailor, dueDate: form.dueDate, amount: normalizeMoney(form.amount), advance: normalizeMoney(form.advance || 0) }
     if (editing) {
       const validation = validateEntity('orders', { ...editing, ...orderValues }, { customers, measurements, orders, payments, staff, inventory: [] }, { existing: editing })
@@ -147,7 +152,7 @@ export default function Orders() {
     </TableFrame>
     {modalOpen && <Modal title={editing ? 'Edit order' : 'Create an order'} description="Make a note of the details and we’ll take it from here." onClose={() => setModalOpen(false)} wide><form className="form-stack" onSubmit={save}>
       <div className="form-grid">
-        <FormField label="Customer"><Select required disabled={Boolean(editing && payments.some((payment) => payment.orderId === editing.id))} value={form.customerId} onChange={(event) => { const customerId = event.target.value; setForm({ ...form, customerId, measurementId: '' }); setCustomerFeedback(null) }}><option value="">Select a customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}{!editing && <option value={newCustomerOption}>+ Add a new customer…</option>}</Select>{editing && payments.some((payment) => payment.orderId === editing.id) && <small className="field-note">Customer is locked after payments are recorded.</small>}</FormField>
+        <FormField label="Customer"><Select required disabled={Boolean(editing && payments.some((payment) => payment.orderId === editing.id))} value={form.customerId} onChange={(event) => { const customerId = event.target.value; setForm({ ...form, customerId, measurementId: '' }); setCustomerFeedback(null) }}><option value="">Select a customer</option>{customers.filter((customer) => !customer.archived || (editing && editing.customerId === customer.id)).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}{!editing && <option value={newCustomerOption}>+ Add a new customer…</option>}</Select>{editing && payments.some((payment) => payment.orderId === editing.id) && <small className="field-note">Customer is locked after payments are recorded.</small>}</FormField>
         {form.customerId === newCustomerOption && <div className="inline-customer-create">
           <div className="inline-customer-heading"><strong>New customer</strong><small>Required: name and phone number.</small></div>
           <div className="form-grid">

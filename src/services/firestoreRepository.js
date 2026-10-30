@@ -272,7 +272,7 @@ function assertBackupFields(data) {
     throw new Error('Backup data contains unsupported top-level fields.')
   }
   const allowedFields = {
-    customers: ['id', 'name', 'phone', 'email', 'address', 'city', 'joined'],
+    customers: ['id', 'name', 'phone', 'email', 'address', 'city', 'joined', 'archived'],
     measurements: ['id', 'customerId', 'customer', 'garment', 'date', 'version', 'unit', 'values'],
     orders: ['id', 'customerId', 'customer', 'garment', 'measurementId', 'tailor', 'dueDate', 'amount', 'advance', 'status', 'createdAt'],
     payments: ['id', 'orderId', 'customer', 'date', 'amount', 'method', 'type'],
@@ -349,18 +349,21 @@ function safeMetadataEqual(left, right) {
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right))
 }
 
-function storedRecord(collectionName, record, data, paymentTotals = paymentTotalsByOrder(data)) {
+function storedRecord(collectionName, record, data, paymentTotals = paymentTotalsByOrder(data), orderPaymentOverrides = null) {
   if (collectionName === 'measurements') {
     return { ...record, versionKeyId: measurementVersionKeyId(record) }
   }
   if (collectionName === 'orders') {
+    if (orderPaymentOverrides && orderPaymentOverrides.has(record.id)) {
+      return { ...record, ...orderPaymentOverrides.get(record.id) }
+    }
     const totals = paymentTotals.get(record.id) || { paidMinorUnits: 0, paymentCount: 0 }
     return { ...record, ...totals }
   }
   return record
 }
 
-function diffDatasetWrites(transaction, firestore, sdk, currentData, nextData, additionalWriteCount = 0) {
+function diffDatasetWrites(transaction, firestore, sdk, currentData, nextData, additionalWriteCount = 0, orderPaymentOverrides = null) {
   const changed = []
   const previousPaymentTotals = paymentTotalsByOrder(currentData)
   const nextPaymentTotals = paymentTotalsByOrder(nextData)
@@ -370,8 +373,8 @@ function diffDatasetWrites(transaction, firestore, sdk, currentData, nextData, a
     for (const [id, record] of previous) {
       if (!next.has(id)) changed.push({ type: 'delete', name, id })
       else if (!safeMetadataEqual(
-        storedRecord(name, record, currentData, previousPaymentTotals),
-        storedRecord(name, next.get(id), nextData, nextPaymentTotals),
+        storedRecord(name, record, currentData, previousPaymentTotals, orderPaymentOverrides),
+        storedRecord(name, next.get(id), nextData, nextPaymentTotals, orderPaymentOverrides),
       )) {
         changed.push({ type: 'set', name, id, record: next.get(id) })
       }
@@ -384,7 +387,7 @@ function diffDatasetWrites(transaction, firestore, sdk, currentData, nextData, a
   changed.forEach((change) => {
     const ref = documentRef(firestore, sdk, change.name, change.id)
     if (change.type === 'delete') transaction.delete(ref)
-    else transaction.set(ref, storedRecord(change.name, change.record, nextData, nextPaymentTotals))
+    else transaction.set(ref, storedRecord(change.name, change.record, nextData, nextPaymentTotals, orderPaymentOverrides))
   })
 }
 
@@ -483,9 +486,14 @@ export class FirestoreRepository {
           return { ...result, data: refreshed.data }
         } catch (error) {
           const repositoryError = classifyFirestoreError(error)
-          if (!loadedResult && repositoryError.category === 'conflict' && attempt < 2) {
-            loaded = await this.load()
-            continue
+          if (!loadedResult && (repositoryError.category === 'conflict' || repositoryError.category === 'permission-denied') && attempt < 3) {
+            try {
+              loaded = await this.load()
+              continue
+            } catch {
+              repositoryError.operation ||= operation
+              throw repositoryError
+            }
           }
           repositoryError.operation ||= operation
           throw repositoryError
@@ -610,6 +618,11 @@ export class FirestoreRepository {
     })
   }
 
+  async archiveCustomer(id, archived = true) {
+    const result = await this.updateRecord('customers', id, { archived })
+    return result.record
+  }
+
   async createOrder(order, optionalInitialPayment) {
     const newOrder = { ...order, id: order.id || makeRecordId('orders') }
     const initialPayment = optionalInitialPayment
@@ -655,6 +668,7 @@ export class FirestoreRepository {
         orderId: newOrder.id,
         paidMinorUnits: initialPayment ? toMinorUnits(initialPayment.amount) : 0,
         paymentCount: initialPayment ? 1 : 0,
+        ...(initialPayment ? { lastPaymentId: initialPayment.id } : {}),
       })
       diffDatasetWrites(transaction, firestore, sdk, current, nextData, 1)
       return { data: nextData, record: newOrder, payment: initialPayment }
@@ -667,8 +681,14 @@ export class FirestoreRepository {
       this.requireInitializedWorkspace(current)
       const existing = current.orders.find((order) => order.id === id)
       if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
-      const orderSnapshot = await transaction.get(documentRef(firestore, sdk, 'orders', id))
+      const orderRef = documentRef(firestore, sdk, 'orders', id)
+      const accountingRef = documentRef(firestore, sdk, 'orderAccounting', id)
+      const [orderSnapshot, accountingSnapshot] = await Promise.all([
+        transaction.get(orderRef),
+        transaction.get(accountingRef),
+      ])
       if (!orderSnapshot.exists()) throw new Error(`No orders record exists with ID "${id}".`)
+      if (!accountingSnapshot.exists()) throw new Error(`Order accounting metadata is missing for order "${id}".`)
       if (updates.status !== undefined && updates.status !== existing.status) {
         throw new Error('Order status changes must use the transitionOrder operation.')
       }
@@ -678,7 +698,12 @@ export class FirestoreRepository {
       if (updates.measurementId === null) delete updatedOrder.measurementId
       const validation = validateEntity('orders', updatedOrder, current, { existing })
       if (!validation.valid) throw new Error(validation.error)
-      diffDatasetWrites(transaction, firestore, sdk, current, validation.data)
+      const liveAccounting = {
+        paidMinorUnits: Number(accountingSnapshot.data().paidMinorUnits ?? 0),
+        paymentCount: Number(accountingSnapshot.data().paymentCount ?? 0),
+      }
+      const overrides = new Map([[id, liveAccounting]])
+      diffDatasetWrites(transaction, firestore, sdk, current, validation.data, 0, overrides)
       return {
         data: validation.data,
         record: validation.data.orders.find((order) => order.id === id),
@@ -692,13 +717,26 @@ export class FirestoreRepository {
       this.requireInitializedWorkspace(current)
       const existing = current.orders.find((order) => order.id === id)
       if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
-      const orderSnapshot = await transaction.get(documentRef(firestore, sdk, 'orders', id))
+      const orderRef = documentRef(firestore, sdk, 'orders', id)
+      const accountingRef = documentRef(firestore, sdk, 'orderAccounting', id)
+      const [orderSnapshot, accountingSnapshot] = await Promise.all([
+        transaction.get(orderRef),
+        transaction.get(accountingRef),
+      ])
       if (!orderSnapshot.exists()) throw new Error(`No orders record exists with ID "${id}".`)
-      const transition = transitionOrderRecord(existing, nextStatus)
+      if (!accountingSnapshot.exists()) throw new Error(`Order accounting metadata is missing for order "${id}".`)
+      const firestoreOrderData = orderSnapshot.data()
+      const firestoreStatus = firestoreOrderData.status || existing.status
+      const transition = transitionOrderRecord({ ...existing, status: firestoreStatus }, nextStatus)
       if (!transition.valid) throw new Error(transition.error)
       const validation = validateEntity('orders', transition.order, current, { existing })
       if (!validation.valid) throw new Error(validation.error)
-      diffDatasetWrites(transaction, firestore, sdk, current, validation.data)
+      const liveAccounting = {
+        paidMinorUnits: Number(accountingSnapshot.data().paidMinorUnits ?? 0),
+        paymentCount: Number(accountingSnapshot.data().paymentCount ?? 0),
+      }
+      const overrides = new Map([[id, liveAccounting]])
+      diffDatasetWrites(transaction, firestore, sdk, current, validation.data, 0, overrides)
       return {
         data: validation.data,
         record: validation.data.orders.find((order) => order.id === id),
@@ -763,6 +801,7 @@ export class FirestoreRepository {
         orderId: order.id,
         paidMinorUnits: newPaidMinorUnits,
         paymentCount: paymentCount + 1,
+        lastPaymentId: newPayment.id,
       })
       const nextData = { ...current, payments: [newPayment, ...current.payments] }
       diffDatasetWrites(transaction, firestore, sdk, current, nextData, 1)
@@ -856,12 +895,15 @@ export class FirestoreRepository {
       if (!snapshot?.exists()
         || Number(snapshot.data().paidMinorUnits) !== expected.paidMinorUnits
         || Number(snapshot.data().paymentCount || 0) !== expected.paymentCount) {
+        const orderPayments = nextData.payments.filter((payment) => payment.orderId === order.id)
+        const lastPayment = orderPayments[orderPayments.length - 1]
         accountSets.push({
           id: order.id,
           data: {
             orderId: order.id,
             paidMinorUnits: expected.paidMinorUnits,
             paymentCount: expected.paymentCount,
+            ...(lastPayment ? { lastPaymentId: lastPayment.id } : {}),
           },
         })
       }

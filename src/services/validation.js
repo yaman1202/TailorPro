@@ -58,6 +58,7 @@ export function validateCustomer(customer) {
   if (customer.address !== undefined && typeof customer.address !== 'string') errors.push('Customer address must be text.')
   if (customer.city !== undefined && typeof customer.city !== 'string') errors.push('Customer city must be text.')
   if (customer.joined !== undefined && !isDate(customer.joined)) errors.push('Customer joined date must use YYYY-MM-DD format.')
+  if (customer.archived !== undefined && typeof customer.archived !== 'boolean') errors.push('Customer archived must be a boolean.')
   return result(errors)
 }
 
@@ -97,7 +98,7 @@ function validateMeasurementVersionUniqueness(measurement, measurements, exclude
     : result([])
 }
 
-export function validateOrder(order, { existing, payments = [], isImport = false } = {}) {
+export function validateOrder(order, { existing, payments = [], isImport = false, customers = [] } = {}) {
   const errors = []
   if (!validateId(order, 'Order', errors)) return result(errors)
   if (!hasText(order.customerId)) errors.push('Order customer is required.')
@@ -108,6 +109,12 @@ export function validateOrder(order, { existing, payments = [], isImport = false
   if (!isDate(order.createdAt)) errors.push('Order creation date must use YYYY-MM-DD format.')
   if (!orderStatuses.includes(order.status)) errors.push('Order status is not supported.')
   if (!existing && !isImport && order.status !== 'New') errors.push('New orders must begin in the New status.')
+  if (!existing && Array.isArray(customers) && customers.length > 0) {
+    const customer = customers.find((c) => c.id === order.customerId)
+    if (customer?.archived) {
+      errors.push(`Cannot create a new order for archived customer "${customer.name}". Restore the customer before creating an order.`)
+    }
+  }
   if (order.tailor !== undefined && typeof order.tailor !== 'string') errors.push('Order tailor must be text.')
   if (existing) {
     const validation = validateOrderUpdate(existing, order, payments)
@@ -197,15 +204,22 @@ export function validateRelationships(data) {
   const payments = Array.isArray(data.payments) ? data.payments : []
   const staff = Array.isArray(data.staff) ? data.staff : []
   const customerIds = new Set(customers.map((customer) => customer.id))
+  const customerNames = new Map(customers.map((customer) => [customer.id, customer.name]))
   const orderIds = new Set(orders.map((order) => order.id))
   const measurementsById = new Map(measurements.map((measurement) => [measurement.id, measurement]))
   const staffNames = new Set(staff.map((member) => member.name?.trim().toLocaleLowerCase()))
 
   for (const measurement of measurements) {
     if (!customerIds.has(measurement.customerId)) errors.push(`Measurement "${measurement.id}" references a missing customer.`)
+    else if (measurement.customer && customerNames.has(measurement.customerId) && measurement.customer !== customerNames.get(measurement.customerId)) {
+      errors.push(`Measurement "${measurement.id}" customer name does not match customer record.`)
+    }
   }
   for (const order of orders) {
     if (!customerIds.has(order.customerId)) errors.push(`Order "${order.id}" references a missing customer.`)
+    else if (order.customer && customerNames.has(order.customerId) && order.customer !== customerNames.get(order.customerId)) {
+      errors.push(`Order "${order.id}" customer name does not match customer record.`)
+    }
     if (order.measurementId) {
       const measurement = measurementsById.get(order.measurementId)
       if (!measurement) errors.push(`Order "${order.id}" references a missing measurement profile.`)
@@ -285,7 +299,7 @@ export function validateEntity(collection, record, data, { existing, excludeId }
   let validation
   if (collection === 'customers') validation = validateCustomer(record)
   if (collection === 'measurements') validation = validateMeasurement(record)
-  if (collection === 'orders') validation = validateOrder(record, { existing, payments: data.payments })
+  if (collection === 'orders') validation = validateOrder(record, { existing, payments: data.payments, customers: data.customers })
   if (collection === 'payments') {
     const order = data.orders.find((item) => item.id === record.orderId)
     validation = validatePaymentEntity(record, { order, payments: data.payments })
@@ -327,7 +341,7 @@ export function validateDeletion(collection, record, data) {
     const linkedOrders = data.orders.filter((order) => order.customerId === record.id)
     const linkedMeasurements = data.measurements.filter((measurement) => measurement.customerId === record.id)
     if (linkedOrders.length || linkedMeasurements.length) {
-      return result([`Customer cannot be deleted while ${linkedOrders.length} order(s) or ${linkedMeasurements.length} measurement profile(s) reference them.`])
+      return result([`Customer cannot be deleted while ${linkedOrders.length} order(s) or ${linkedMeasurements.length} measurement profile(s) reference them. Archive the customer instead to preserve historical records.`])
     }
   }
   if (collection === 'staff') {

@@ -75,10 +75,12 @@ async function seedData(data = initialData) {
         paidMinorUnits,
         paymentCount,
       })
+      const lastPayment = orderPayments[orderPayments.length - 1]
       await setDoc(doc(firestore, 'businesses', businessId, 'orderAccounting', order.id), {
         orderId: order.id,
         paidMinorUnits,
         paymentCount,
+        ...(lastPayment ? { lastPaymentId: lastPayment.id } : {}),
       })
     }
     await setDoc(
@@ -703,4 +705,44 @@ test('measurement version keys prevent duplicate and concurrent versions', async
   ])
   assert.equal(creates.filter((result) => result.status === 'fulfilled').length, 1)
   assert.equal(creates.filter((result) => result.status === 'rejected').length, 1)
+})
+
+test('customer archival lifecycle protects historical relationships and restricts new orders', async () => {
+  await seedData()
+  const repository = createRepository()
+  const customer = initialData.customers[0]
+
+  // Cannot delete customer with order or measurement history
+  await assert.rejects(
+    repository.deleteRecord('customers', customer.id),
+    /cannot be deleted while.*reference them/i,
+  )
+
+  // Archiving customer succeeds
+  const archived = await repository.archiveCustomer(customer.id, true)
+  assert.equal(archived.archived, true)
+
+  const loadedArchived = await repository.load()
+  const storedCustomer = loadedArchived.data.customers.find((c) => c.id === customer.id)
+  assert.equal(storedCustomer.archived, true)
+  // Historical orders and measurements are still present
+  assert.ok(loadedArchived.data.orders.some((o) => o.customerId === customer.id))
+  assert.ok(loadedArchived.data.measurements.some((m) => m.customerId === customer.id))
+
+  // New order for archived customer is rejected
+  const orderOnArchived = makeOrder('order-archived-cust', {
+    customerId: customer.id,
+    customer: customer.name,
+    amount: 1500,
+  })
+  await assert.rejects(
+    repository.createOrder(orderOnArchived),
+    /archived customer/i,
+  )
+
+  // Restoring/unarchiving customer allows new orders again
+  const restored = await repository.archiveCustomer(customer.id, false)
+  assert.equal(restored.archived, false)
+  const orderAfterRestore = await repository.createOrder(orderOnArchived)
+  assert.equal(orderAfterRestore.record.id, orderOnArchived.id)
 })

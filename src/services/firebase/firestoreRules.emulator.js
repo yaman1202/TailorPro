@@ -63,10 +63,12 @@ async function seedData() {
         paidMinorUnits,
         paymentCount: orderPayments.length,
       })
+      const lastPayment = orderPayments[orderPayments.length - 1]
       await setDoc(doc(firestore, 'businesses', businessId, 'orderAccounting', order.id), {
         orderId: order.id,
         paidMinorUnits,
         paymentCount: orderPayments.length,
+        ...(lastPayment ? { lastPaymentId: lastPayment.id } : {}),
       })
     }
     for (const payment of initialData.payments) {
@@ -313,4 +315,175 @@ test('owner can read all six approved collections but cannot write arbitrary sha
   }
   await assertFails(setDoc(doc(ownerDb, 'businesses', businessId, 'inventory', 'bad-inventory'), { id: 'bad-inventory', name: 'Invalid' }))
   await assertFails(setDoc(doc(ownerDb, 'businesses', businessId, 'settings', 'other-settings'), initialData.settings))
+})
+
+test('cross-business access is strictly denied', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const firestore = context.firestore()
+    await setDoc(doc(firestore, 'businesses', 'second-business'), { ownerUid: 'other-owner-uid' })
+    await setDoc(doc(firestore, 'businesses', 'second-business', 'customers', 'c-other'), {
+      id: 'c-other',
+      name: 'Other Customer',
+      phone: '555-0999',
+    })
+  })
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  await assertFails(getDoc(doc(ownerDb, 'businesses', 'second-business')))
+  await assertFails(getDoc(doc(ownerDb, 'businesses', 'second-business', 'customers', 'c-other')))
+  await assertFails(setDoc(doc(ownerDb, 'businesses', 'second-business', 'customers', 'c-hack'), {
+    id: 'c-hack',
+    name: 'Hack',
+    phone: '555-0000',
+  }))
+})
+
+test('customer archival works and archived customer cannot be selected for a new order', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const customerRef = doc(ownerDb, 'businesses', businessId, 'customers', 'c1')
+  const archiveBatch = writeBatch(ownerDb)
+  archiveBatch.update(customerRef, { archived: true })
+  archiveBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertSucceeds(archiveBatch.commit())
+
+  const newOrderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'order-on-archived-customer')
+  const newAccountRef = doc(ownerDb, 'businesses', businessId, 'orderAccounting', 'order-on-archived-customer')
+  const orderBatch = writeBatch(ownerDb)
+  orderBatch.set(newOrderRef, {
+    id: 'order-on-archived-customer',
+    customerId: 'c1',
+    customer: 'Aarav Mehta',
+    garment: 'Formal shirt',
+    tailor: '',
+    dueDate: '2026-11-20',
+    amount: 1000,
+    advance: 0,
+    status: 'New',
+    createdAt: '2026-10-31',
+    paidMinorUnits: 0,
+    paymentCount: 0,
+  })
+  orderBatch.set(newAccountRef, {
+    orderId: 'order-on-archived-customer',
+    paidMinorUnits: 0,
+    paymentCount: 0,
+  })
+  orderBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 3 })
+  await assertFails(orderBatch.commit())
+})
+
+test('payment rules enforce exact accounting increments and link to new payment record', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2404')
+  const accountRef = doc(ownerDb, 'businesses', businessId, 'orderAccounting', 'TP-2404')
+  const paymentRef = doc(ownerDb, 'businesses', businessId, 'payments', 'exact-payment-1')
+
+  const validBatch = writeBatch(ownerDb)
+  validBatch.set(paymentRef, {
+    id: 'exact-payment-1',
+    orderId: 'TP-2404',
+    customer: 'Rohan Desai',
+    date: '2026-10-31',
+    amount: 500,
+    method: 'UPI',
+    type: 'Balance',
+  })
+  validBatch.update(accountRef, {
+    paidMinorUnits: 50000,
+    paymentCount: 1,
+    lastPaymentId: 'exact-payment-1',
+  })
+  validBatch.update(orderRef, {
+    paidMinorUnits: 50000,
+    paymentCount: 1,
+  })
+  validBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertSucceeds(validBatch.commit())
+
+  const inexactBatch = writeBatch(ownerDb)
+  const inexactPaymentRef = doc(ownerDb, 'businesses', businessId, 'payments', 'exact-payment-2')
+  inexactBatch.set(inexactPaymentRef, {
+    id: 'exact-payment-2',
+    orderId: 'TP-2404',
+    customer: 'Rohan Desai',
+    date: '2026-10-31',
+    amount: 200,
+    method: 'UPI',
+    type: 'Balance',
+  })
+  inexactBatch.update(accountRef, {
+    paidMinorUnits: 80000,
+    paymentCount: 2,
+    lastPaymentId: 'exact-payment-2',
+  })
+  inexactBatch.update(orderRef, {
+    paidMinorUnits: 80000,
+    paymentCount: 2,
+  })
+  inexactBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 3 })
+  await assertFails(inexactBatch.commit())
+})
+
+test('phantom payments without an immutable payment record are rejected', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2404')
+  const accountRef = doc(ownerDb, 'businesses', businessId, 'orderAccounting', 'TP-2404')
+
+  const phantomBatch = writeBatch(ownerDb)
+  phantomBatch.update(accountRef, {
+    paidMinorUnits: 10000,
+    paymentCount: 1,
+  })
+  phantomBatch.update(orderRef, {
+    paidMinorUnits: 10000,
+    paymentCount: 1,
+  })
+  phantomBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertFails(phantomBatch.commit())
+})
+
+test('payments on cancelled orders and overpayments are rejected', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2404')
+  const cancelBatch = writeBatch(ownerDb)
+  cancelBatch.update(orderRef, { status: 'Cancelled' })
+  cancelBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertSucceeds(cancelBatch.commit())
+
+  const cancelledPaymentBatch = writeBatch(ownerDb)
+  const paymentRef = doc(ownerDb, 'businesses', businessId, 'payments', 'cancel-payment-reject')
+  cancelledPaymentBatch.set(paymentRef, {
+    id: 'cancel-payment-reject',
+    orderId: 'TP-2404',
+    customer: 'Rohan Desai',
+    date: '2026-10-31',
+    amount: 100,
+    method: 'Cash',
+    type: 'Balance',
+  })
+  cancelledPaymentBatch.update(doc(ownerDb, 'businesses', businessId, 'orderAccounting', 'TP-2404'), {
+    paidMinorUnits: 10000,
+    paymentCount: 1,
+    lastPaymentId: 'cancel-payment-reject',
+  })
+  cancelledPaymentBatch.update(orderRef, {
+    paidMinorUnits: 10000,
+    paymentCount: 1,
+  })
+  cancelledPaymentBatch.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 3 })
+  await assertFails(cancelledPaymentBatch.commit())
+})
+
+test('invalid order status jumps and non-sequential revision jumps are rejected', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2404')
+
+  const invalidTransition = writeBatch(ownerDb)
+  invalidTransition.update(orderRef, { status: 'Completed' })
+  invalidTransition.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertFails(invalidTransition.commit())
+
+  const invalidRevisionJump = writeBatch(ownerDb)
+  invalidRevisionJump.update(orderRef, { status: 'Assigned' })
+  invalidRevisionJump.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 5 })
+  await assertFails(invalidRevisionJump.commit())
 })

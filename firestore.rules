@@ -2,17 +2,13 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isConfiguredBusiness(businessId) {
-      return businessId == 'tailorpro-dev-802c2';
-    }
-
     function businessPath(businessId) {
       return /databases/$(database)/documents/businesses/$(businessId);
     }
 
     function isOwner(businessId) {
       return request.auth != null
-        && isConfiguredBusiness(businessId)
+        && exists(businessPath(businessId))
         && get(businessPath(businessId)).data.ownerUid == request.auth.uid;
     }
 
@@ -42,16 +38,21 @@ service cloud.firestore {
       return (value is int || value is float) && value >= 0;
     }
 
+    function toMinor(value) {
+      return int(value * 100 + 0.5);
+    }
+
     function validCustomer(data, documentId) {
       return validId(data, documentId)
         && data.keys().hasAll(['id', 'name', 'phone'])
-        && data.keys().hasOnly(['id', 'name', 'phone', 'email', 'address', 'city', 'joined'])
+        && data.keys().hasOnly(['id', 'name', 'phone', 'email', 'address', 'city', 'joined', 'archived'])
         && validText(data.name)
         && validText(data.phone)
         && validOptionalText(data, 'email')
         && validOptionalText(data, 'address')
         && validOptionalText(data, 'city')
-        && validOptionalText(data, 'joined');
+        && validOptionalText(data, 'joined')
+        && (!('archived' in data) || data.archived is bool);
     }
 
     function customerExistsAfter(businessId, customerId) {
@@ -64,6 +65,7 @@ service cloud.firestore {
     }
 
     function validMeasurement(data, documentId, businessId) {
+      let customerPath = /databases/$(database)/documents/businesses/$(businessId)/customers/$(data.customerId);
       return validId(data, documentId)
         && data.keys().hasAll(['id', 'customerId', 'customer', 'garment', 'date', 'version', 'values'])
         && data.keys().hasAll(['versionKeyId'])
@@ -71,6 +73,7 @@ service cloud.firestore {
         && validText(data.customerId)
         && customerExistsAfter(businessId, data.customerId)
         && validText(data.customer)
+        && data.customer == getAfter(customerPath).data.name
         && validText(data.garment)
         && data.date is string
         && data.version is int
@@ -101,19 +104,20 @@ service cloud.firestore {
         && data.keys().hasAll(['id', 'customerId', 'garment', 'version', 'measurementId'])
         && data.keys().hasOnly(['id', 'customerId', 'garment', 'version', 'measurementId'])
         && data.id == keyId
-        && keyId == getAfter(measurementPath).data.versionKeyId
         && validText(data.customerId)
         && validText(data.garment)
         && data.version is int
         && data.version > 0
         && validText(data.measurementId)
         && existsAfter(measurementPath)
+        && keyId == getAfter(measurementPath).data.versionKeyId
         && getAfter(measurementPath).data.customerId == data.customerId
         && getAfter(measurementPath).data.garment == data.garment
         && getAfter(measurementPath).data.version == data.version;
     }
 
     function validOrder(data, documentId, businessId) {
+      let customerPath = /databases/$(database)/documents/businesses/$(businessId)/customers/$(data.customerId);
       return validId(data, documentId)
         && data.keys().hasAll([
           'id', 'customerId', 'customer', 'garment', 'tailor', 'dueDate',
@@ -126,7 +130,7 @@ service cloud.firestore {
         && validText(data.customerId)
         && customerExistsAfter(businessId, data.customerId)
         && validText(data.customer)
-        && validText(data.garment)
+        && data.customer == getAfter(customerPath).data.name
         && data.tailor is string
         && data.dueDate is string
         && validMoney(data.amount)
@@ -142,7 +146,7 @@ service cloud.firestore {
         && data.paidMinorUnits >= 0
         && data.paymentCount is int
         && data.paymentCount >= 0
-        && data.paidMinorUnits <= data.amount * 100
+        && data.paidMinorUnits <= toMinor(data.amount)
         && (!('measurementId' in data)
           || (validText(data.measurementId)
             && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)));
@@ -167,16 +171,17 @@ service cloud.firestore {
       let orderDoc = getAfter(/databases/$(database)/documents/businesses/$(businessId)/orders/$(orderId));
       return data is map
         && data.keys().hasAll(['orderId', 'paidMinorUnits', 'paymentCount'])
-        && data.keys().hasOnly(['orderId', 'paidMinorUnits', 'paymentCount'])
+        && data.keys().hasOnly(['orderId', 'paidMinorUnits', 'paymentCount', 'lastPaymentId'])
         && data.orderId == orderId
         && data.paidMinorUnits is int
         && data.paidMinorUnits >= 0
         && data.paymentCount is int
         && data.paymentCount >= 0
+        && (!('lastPaymentId' in data) || validText(data.lastPaymentId))
         && orderDoc.data.id == orderId
         && orderDoc.data.paidMinorUnits == data.paidMinorUnits
         && orderDoc.data.paymentCount == data.paymentCount
-        && data.paidMinorUnits <= orderDoc.data.amount * 100;
+        && data.paidMinorUnits <= toMinor(orderDoc.data.amount);
     }
 
     function validPayment(data, documentId, businessId) {
@@ -200,9 +205,10 @@ service cloud.firestore {
         && orderDoc.data.paidMinorUnits == accountDoc.data.paidMinorUnits
         && orderDoc.data.paymentCount == accountDoc.data.paymentCount
         && orderDoc.data.status != 'Cancelled'
-        && accountDoc.data.paidMinorUnits >= previousPaid + data.amount * 100
-        && accountDoc.data.paymentCount >= previousCount + 1
-        && accountDoc.data.paidMinorUnits <= orderDoc.data.amount * 100;
+        && accountDoc.data.paidMinorUnits == previousPaid + toMinor(data.amount)
+        && accountDoc.data.paymentCount == previousCount + 1
+        && accountDoc.data.get('lastPaymentId', '') == documentId
+        && accountDoc.data.paidMinorUnits <= toMinor(orderDoc.data.amount);
     }
 
     function validSettings(data, documentId) {
@@ -227,8 +233,7 @@ service cloud.firestore {
     }
 
     match /businesses/{businessId} {
-      allow get: if isConfiguredBusiness(businessId)
-        && request.auth != null
+      allow get: if request.auth != null
         && resource.data.ownerUid == request.auth.uid
         && resource.data.keys().hasOnly(['ownerUid']);
       allow list, create, update, delete: if false;
@@ -251,8 +256,7 @@ service cloud.firestore {
           && advancesWorkspaceRevision(businessId)
           && validMeasurement(request.resource.data, documentId, businessId)
           && matchingVersionKey(request.resource.data, documentId, businessId);
-        allow update: if false;
-        allow delete: if false;
+        allow update, delete: if false;
       }
 
       match /measurementVersionKeys/{keyId} {
@@ -267,13 +271,35 @@ service cloud.firestore {
         allow get, list: if isOwner(businessId);
         allow create: if isOwner(businessId)
           && advancesWorkspaceRevision(businessId)
-          && validAccounting(request.resource.data, orderId, businessId);
+          && validAccounting(request.resource.data, orderId, businessId)
+          && (
+            (request.resource.data.paidMinorUnits == 0
+              && request.resource.data.paymentCount == 0
+              && !('lastPaymentId' in request.resource.data))
+            || (request.resource.data.paidMinorUnits > 0
+              && request.resource.data.paymentCount == 1
+              && 'lastPaymentId' in request.resource.data
+              && validText(request.resource.data.lastPaymentId)
+              && existsAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId))
+              && getAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId)).data.orderId == orderId
+              && toMinor(getAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId)).data.amount) == request.resource.data.paidMinorUnits)
+          );
         allow update: if isOwner(businessId)
           && advancesWorkspaceRevision(businessId)
           && validAccounting(request.resource.data, orderId, businessId)
           && request.resource.data.orderId == resource.data.orderId
-          && request.resource.data.paidMinorUnits >= resource.data.paidMinorUnits
-          && request.resource.data.paymentCount >= resource.data.get('paymentCount', 0);
+          && (
+            (request.resource.data.paidMinorUnits == resource.data.paidMinorUnits
+              && request.resource.data.paymentCount == resource.data.get('paymentCount', 0))
+            || (request.resource.data.paidMinorUnits > resource.data.paidMinorUnits
+              && request.resource.data.paymentCount == resource.data.get('paymentCount', 0) + 1
+              && 'lastPaymentId' in request.resource.data
+              && validText(request.resource.data.lastPaymentId)
+              && !exists(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId))
+              && existsAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId))
+              && getAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId)).data.orderId == orderId
+              && request.resource.data.paidMinorUnits == resource.data.paidMinorUnits + toMinor(getAfter(/databases/$(database)/documents/businesses/$(businessId)/payments/$(request.resource.data.lastPaymentId)).data.amount))
+          );
         allow delete: if isOwner(businessId)
           && advancesWorkspaceRevision(businessId)
           && resource.data.paidMinorUnits == 0
@@ -287,10 +313,13 @@ service cloud.firestore {
           && advancesWorkspaceRevision(businessId)
           && validOrder(request.resource.data, documentId, businessId)
           && request.resource.data.status == 'New'
+          && getAfter(/databases/$(database)/documents/businesses/$(businessId)/customers/$(request.resource.data.customerId)).data.get('archived', false) == false
           && existsAfter(accountingPath(businessId, documentId))
           && getAfter(accountingPath(businessId, documentId)).data.paidMinorUnits == request.resource.data.paidMinorUnits
           && getAfter(accountingPath(businessId, documentId)).data.paymentCount == request.resource.data.paymentCount
-          && request.resource.data.paidMinorUnits >= request.resource.data.advance * 100;
+          && request.resource.data.paidMinorUnits == toMinor(request.resource.data.advance)
+          && (request.resource.data.advance == 0 || request.resource.data.paymentCount == 1)
+          && (request.resource.data.advance > 0 || request.resource.data.paymentCount == 0);
         allow update: if isOwner(businessId)
           && advancesWorkspaceRevision(businessId)
           && validOrder(request.resource.data, documentId, businessId)
@@ -303,7 +332,7 @@ service cloud.firestore {
           && request.resource.data.paymentCount == getAfter(accountingPath(businessId, documentId)).data.paymentCount
           && request.resource.data.paidMinorUnits >= resource.data.get('paidMinorUnits', 0)
           && request.resource.data.paymentCount >= resource.data.get('paymentCount', 0)
-          && request.resource.data.paidMinorUnits <= request.resource.data.amount * 100;
+          && request.resource.data.paidMinorUnits <= toMinor(request.resource.data.amount);
         allow delete: if isOwner(businessId)
           && advancesWorkspaceRevision(businessId)
           && resource.data.get('paidMinorUnits', -1) == 0

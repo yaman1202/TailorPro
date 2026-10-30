@@ -18,3 +18,17 @@ export function validateBackup(backup) {
   }
   return validateData(backup.data, { allowLegacyMeasurements: true })
 }
+
+export function previewBackup(backup) {
+  const validation = validateBackup(backup)
+  const collections = ['customers', 'measurements', 'orders', 'payments', 'staff', 'inventory']
+  const counts = Object.fromEntries(collections.map((collection) => [
+    collection,
+    Array.isArray(backup?.data?.[collection]) ? backup.data[collection].length : 0,
+  ]))
+  return {
+    valid: validation.valid,
+    errors: validation.errors,
+    counts,
+  }
+}

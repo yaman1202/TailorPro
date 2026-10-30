@@ -68,8 +68,8 @@ function makeOrder({ id, customerId = 'c1', customer = 'Aarav Mehta', tailor = '
 async function transitionAndSave(repository, order, nextStatus) {
   const transition = transitionOrder(order, nextStatus)
   if (!transition.valid) return transition
-  await repository.updateRecord('orders', order.id, transition.order)
-  return transition
+  const saved = await repository.transitionOrder(order.id, nextStatus)
+  return { valid: true, order: saved.record }
 }
 
 test('TailorPro business workflow integration', async (t) => {

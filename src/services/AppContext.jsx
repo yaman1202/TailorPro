@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppDataContext } from './appDataContext.js'
 import { assertDataRepository } from './dataRepository.js'
-import { createLocalStorageRepository } from './localStorageRepository.js'
+import { createDataRepository } from './repositoryFactory.js'
 
-const defaultRepository = assertDataRepository(createLocalStorageRepository())
-
-export function AppProvider({ children, repository = defaultRepository }) {
+export function AppProvider({ children, repository: providedRepository }) {
+  const [repositorySetup] = useState(() => {
+    try {
+      return {
+        repository: assertDataRepository(providedRepository || createDataRepository()),
+        error: '',
+      }
+    } catch (error) {
+      return { repository: null, error: error.message }
+    }
+  })
+  const repository = repositorySetup.repository
   const [data, setData] = useState(null)
-  const [storageState, setStorageState] = useState({ status: 'loading', error: '', raw: null })
+  const [storageState, setStorageState] = useState(() => ({
+    status: repositorySetup.error ? 'repository-error' : 'loading',
+    error: repositorySetup.error,
+    raw: null,
+  }))
 
   useEffect(() => {
+    if (!repository) return undefined
     let active = true
     repository.load()
       .then((result) => {
@@ -19,22 +33,36 @@ export function AppProvider({ children, repository = defaultRepository }) {
       })
       .catch((error) => {
         if (!active) return
-        setStorageState({ status: 'unavailable', error: error.message, raw: null })
+        setStorageState({
+          status: 'repository-error',
+          error: error.message,
+          errorType: error.category || 'repository',
+          raw: null,
+        })
       })
     return () => { active = false }
   }, [repository])
 
   const handleRepositoryError = useCallback((error, operation) => {
-    if (error?.data) {
+    if (error?.recoverableLocalWrite && error.data) {
       setData(error.data)
       setStorageState({ status: 'write-error', error: error.message, raw: null })
       return false
     }
     setStorageState((current) => {
+      if (operation === 'replace' && current.status === 'uninitialized') {
+        return { ...current, error: error.message }
+      }
       if (operation === 'replace' && ['corrupt', 'unavailable'].includes(current.status)) {
         return { ...current, error: error.message }
       }
-      return { status: 'operation-error', error: error.message, raw: null }
+      return {
+        status: 'repository-error',
+        error: error.message,
+        errorType: error.category || 'repository',
+        raw: null,
+        operation,
+      }
     })
     return false
   }, [])
@@ -48,6 +76,18 @@ export function AppProvider({ children, repository = defaultRepository }) {
     } catch (error) {
       handleRepositoryError(error, 'create')
       return null
+    }
+  }, [repository, handleRepositoryError])
+
+  const createCustomer = useCallback(async (record) => {
+    try {
+      const result = await repository.addRecord('customers', record)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return { record: result.record, error: '' }
+    } catch (error) {
+      handleRepositoryError(error, 'create customer')
+      return { record: null, error: error.message }
     }
   }, [repository, handleRepositoryError])
 
@@ -75,6 +115,63 @@ export function AppProvider({ children, repository = defaultRepository }) {
     }
   }, [repository, handleRepositoryError])
 
+  const createOrder = useCallback(async (order, optionalInitialPayment) => {
+    try {
+      const result = await repository.createOrder(order, optionalInitialPayment)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return result.record
+    } catch (error) {
+      handleRepositoryError(error, 'create order')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
+  const updateOrder = useCallback(async (id, updates) => {
+    try {
+      const result = await repository.updateOrder(id, updates)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return result.record
+    } catch (error) {
+      handleRepositoryError(error, 'update order')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
+  const transitionOrder = useCallback(async (id, nextStatus) => {
+    try {
+      const result = await repository.transitionOrder(id, nextStatus)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return result.record
+    } catch (error) {
+      handleRepositoryError(error, 'transition order')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
+  const recordPayment = useCallback(async (payment) => {
+    try {
+      const result = await repository.recordPayment(payment)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return result.record
+    } catch (error) {
+      handleRepositoryError(error, 'record payment')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
+  const exportBackup = useCallback(async () => {
+    try {
+      return await repository.exportBackup()
+    } catch (error) {
+      handleRepositoryError(error, 'export backup')
+      return null
+    }
+  }, [repository, handleRepositoryError])
+
   const updateSettings = useCallback(async (updates) => {
     try {
       const result = await repository.updateSettings(updates)
@@ -87,9 +184,9 @@ export function AppProvider({ children, repository = defaultRepository }) {
     }
   }, [repository, handleRepositoryError])
 
-  const replaceData = useCallback(async (nextData) => {
+  const replaceData = useCallback(async (nextData, options) => {
     try {
-      const result = await repository.replaceData(nextData)
+      const result = await repository.replaceData(nextData, options)
       setData(result.data)
       setStorageState({ status: 'ready', error: '', raw: null })
       return true
@@ -111,14 +208,21 @@ export function AppProvider({ children, repository = defaultRepository }) {
 
   const value = useMemo(() => ({
     ...(data || {}),
+    dataReady: Boolean(data),
     storageState,
     addRecord,
+    createCustomer,
     updateRecord,
     deleteRecord,
+    createOrder,
+    updateOrder,
+    transitionOrder,
+    recordPayment,
+    exportBackup,
     updateSettings,
     replaceData,
     retryStorageSave,
-  }), [data, storageState, addRecord, updateRecord, deleteRecord, updateSettings, replaceData, retryStorageSave])
+  }), [data, storageState, addRecord, createCustomer, updateRecord, deleteRecord, createOrder, updateOrder, transitionOrder, recordPayment, exportBackup, updateSettings, replaceData, retryStorageSave])
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>
 }

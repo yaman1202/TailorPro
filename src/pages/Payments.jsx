@@ -10,7 +10,7 @@ import { validateEntity } from '../services/validation.js'
 const emptyForm = { orderId: '', amount: '', method: 'UPI', type: 'Balance' }
 
 export default function Payments() {
-  const { orders, payments, customers, measurements, staff, inventory, addRecord, settings } = useAppData()
+  const { orders, payments, customers, measurements, staff, inventory, recordPayment: savePayment, settings } = useAppData()
   const money = (value) => formatCurrency(value, settings.currency)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -36,7 +36,7 @@ export default function Payments() {
       return
     }
     try {
-      if (await addRecord('payments', payment)) {
+      if (await savePayment(payment)) {
         setModalOpen(false)
         setForm(emptyForm)
         setPaymentError('')

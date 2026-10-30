@@ -1,6 +1,8 @@
 import { loadData, saveData } from './storageService.js'
 import { DataRepositoryError } from './dataRepository.js'
 import { validateData, validateEntity, validateSettings, validateDeletion } from './validation.js'
+import { transitionOrder as transitionOrderRecord } from './orderWorkflow.js'
+import { createBackup } from './backupService.js'
 
 const collections = ['customers', 'measurements', 'orders', 'payments', 'staff', 'inventory']
 
@@ -32,7 +34,7 @@ export class LocalStorageRepository {
           saveData(this.data)
           this.loadResult = { ...this.loadResult, isNew: false }
         } catch (error) {
-          const repositoryError = new DataRepositoryError('save initial', error, this.data)
+          const repositoryError = new DataRepositoryError('save initial', error, this.data, { recoverableLocalWrite: true })
           this.loadResult = {
             ...this.loadResult,
             status: 'write-error',
@@ -48,7 +50,10 @@ export class LocalStorageRepository {
 
   async addRecord(collection, record) {
     this.assertCollection(collection)
+    if (collection === 'orders') return this.createOrder(record)
+    if (collection === 'payments') return this.recordPayment(record)
     const nextRecord = { ...record, id: record.id || createRecordId(collection) }
+    if (collection === 'measurements') nextRecord.id = nextRecord.id || createRecordId(collection)
     return this.mutate('create', (current) => {
       if (current[collection].some((item) => item.id === nextRecord.id)) {
         throw new Error(`${collection} already contains a record with ID "${nextRecord.id}".`)
@@ -64,6 +69,9 @@ export class LocalStorageRepository {
 
   async updateRecord(collection, id, updates) {
     this.assertCollection(collection)
+    if (collection === 'orders') return this.updateOrder(id, updates)
+    if (collection === 'payments') throw new Error('Payment ledger entries cannot be modified.')
+    if (collection === 'measurements') throw new Error('Measurement history is immutable. Save a new measurement version instead.')
     return this.mutate('update', (current) => {
       let updatedRecord
       const records = current[collection].map((record) => {
@@ -90,6 +98,80 @@ export class LocalStorageRepository {
       const validation = validateDeletion(collection, record, current)
       if (!validation.valid) throw new Error(validation.error)
       return { data: { ...current, [collection]: records.filter((record) => record.id !== id) } }
+    })
+  }
+
+  createOrder(order, optionalInitialPayment) {
+    const newOrder = { ...order, id: order.id || createRecordId('orders') }
+    const initialPayment = optionalInitialPayment
+      ? { ...optionalInitialPayment, id: optionalInitialPayment.id || createRecordId('payments') }
+      : null
+    return this.mutate('create order', (current) => {
+      if (current.orders.some((item) => item.id === newOrder.id)) {
+        throw new Error(`orders already contains a record with ID "${newOrder.id}".`)
+      }
+      const orderValidation = validateEntity('orders', newOrder, current)
+      if (!orderValidation.valid) throw new Error(orderValidation.error)
+      if (Math.round(Number(newOrder.advance || 0) * 100) > 0 && !initialPayment) {
+        throw new Error('An order advance must be recorded with its initial payment.')
+      }
+      let nextData = orderValidation.data
+      if (initialPayment) {
+        if (Math.round(Number(initialPayment.amount) * 100) !== Math.round(Number(newOrder.advance || 0) * 100)) {
+          throw new Error('Initial payment amount must match the order advance.')
+        }
+        const paymentValidation = validateEntity('payments', initialPayment, nextData)
+        if (!paymentValidation.valid) throw new Error(paymentValidation.error)
+        nextData = paymentValidation.data
+      }
+      return { data: nextData, record: newOrder, payment: initialPayment }
+    })
+  }
+
+  updateOrder(id, updates) {
+    return this.mutate('update order', (current) => {
+      const existing = current.orders.find((item) => item.id === id)
+      if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
+      if (updates.status !== undefined && updates.status !== existing.status) {
+        throw new Error('Order status changes must use the transitionOrder operation.')
+      }
+      const updatedFields = { ...updates }
+      if (updatedFields.measurementId === null) delete updatedFields.measurementId
+      const updatedOrder = { ...existing, ...updatedFields, id: existing.id, status: existing.status }
+      if (updates.measurementId === null) delete updatedOrder.measurementId
+      const validation = validateEntity('orders', updatedOrder, current, { existing })
+      if (!validation.valid) throw new Error(validation.error)
+      return {
+        data: validation.data,
+        record: validation.data.orders.find((item) => item.id === id),
+      }
+    })
+  }
+
+  transitionOrder(id, nextStatus) {
+    return this.mutate('transition order', (current) => {
+      const existing = current.orders.find((item) => item.id === id)
+      if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
+      const transition = transitionOrderRecord(existing, nextStatus)
+      if (!transition.valid) throw new Error(transition.error)
+      const validation = validateEntity('orders', transition.order, current, { existing })
+      if (!validation.valid) throw new Error(validation.error)
+      return {
+        data: validation.data,
+        record: validation.data.orders.find((item) => item.id === id),
+      }
+    })
+  }
+
+  recordPayment(payment) {
+    const newPayment = { ...payment, id: payment.id || createRecordId('payments') }
+    return this.mutate('record payment', (current) => {
+      const validation = validateEntity('payments', newPayment, current)
+      if (!validation.valid) throw new Error(validation.error)
+      return {
+        data: validation.data,
+        record: newPayment,
+      }
     })
   }
 
@@ -124,6 +206,11 @@ export class LocalStorageRepository {
     return this.mutate('save', (current) => ({ data: current }))
   }
 
+  async exportBackup() {
+    await this.ensureLoaded()
+    return createBackup(cloneData(this.data))
+  }
+
   assertCollection(collection) {
     if (!collections.includes(collection)) throw new TypeError(`Unsupported data collection "${collection}".`)
   }
@@ -148,7 +235,7 @@ export class LocalStorageRepository {
         try {
           saveData(nextData)
         } catch (error) {
-          const repositoryError = new DataRepositoryError(operationName, error, nextData)
+          const repositoryError = new DataRepositoryError(operationName, error, nextData, { recoverableLocalWrite: true })
           this.loadResult = {
             data: nextData,
             status: 'write-error',

@@ -55,6 +55,7 @@ export function validateCustomer(customer) {
   if (customer.email !== undefined && customer.email !== '' && (typeof customer.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))) {
     errors.push('Customer email must be a valid email address.')
   }
+  if (customer.address !== undefined && typeof customer.address !== 'string') errors.push('Customer address must be text.')
   if (customer.city !== undefined && typeof customer.city !== 'string') errors.push('Customer city must be text.')
   if (customer.joined !== undefined && !isDate(customer.joined)) errors.push('Customer joined date must use YYYY-MM-DD format.')
   return result(errors)
@@ -67,9 +68,11 @@ export function validateMeasurement(measurement, { requireTemplateFields = true 
   if (!hasText(measurement.garment)) errors.push('Measurement garment is required.')
   if (!isDate(measurement.date)) errors.push('Measurement date must use YYYY-MM-DD format.')
   if (!Number.isInteger(measurement.version) || measurement.version < 1) errors.push('Measurement version must be a positive integer.')
+  if (measurement.unit !== undefined && !['in', 'cm'].includes(measurement.unit)) errors.push('Measurement unit must be inches or centimetres.')
   if (!isRecord(measurement.values) || Object.keys(measurement.values).length === 0) {
     errors.push('At least one measurement value is required.')
   } else {
+    if (Object.keys(measurement.values).length > 32) errors.push('A measurement profile cannot contain more than 32 fields.')
     const requiredFields = measurementFields[measurement.garment]
     if (requireTemplateFields && !requiredFields) errors.push('Select a supported garment measurement template.')
     if (requireTemplateFields && requiredFields) {
@@ -100,6 +103,7 @@ export function validateOrder(order, { existing, payments = [], isImport = false
   if (!hasText(order.customerId)) errors.push('Order customer is required.')
   if (!hasText(order.customer)) errors.push('Order customer name is required.')
   if (!hasText(order.garment)) errors.push('Order garment is required.')
+  if (order.measurementId != null && !hasText(order.measurementId)) errors.push('Order measurement profile reference must be text.')
   if (!isDate(order.dueDate)) errors.push('Order delivery date must use YYYY-MM-DD format.')
   if (!isDate(order.createdAt)) errors.push('Order creation date must use YYYY-MM-DD format.')
   if (!orderStatuses.includes(order.status)) errors.push('Order status is not supported.')
@@ -194,6 +198,7 @@ export function validateRelationships(data) {
   const staff = Array.isArray(data.staff) ? data.staff : []
   const customerIds = new Set(customers.map((customer) => customer.id))
   const orderIds = new Set(orders.map((order) => order.id))
+  const measurementsById = new Map(measurements.map((measurement) => [measurement.id, measurement]))
   const staffNames = new Set(staff.map((member) => member.name?.trim().toLocaleLowerCase()))
 
   for (const measurement of measurements) {
@@ -201,6 +206,11 @@ export function validateRelationships(data) {
   }
   for (const order of orders) {
     if (!customerIds.has(order.customerId)) errors.push(`Order "${order.id}" references a missing customer.`)
+    if (order.measurementId) {
+      const measurement = measurementsById.get(order.measurementId)
+      if (!measurement) errors.push(`Order "${order.id}" references a missing measurement profile.`)
+      else if (measurement.customerId !== order.customerId) errors.push(`Order "${order.id}" measurement profile belongs to a different customer.`)
+    }
     if (order.tailor?.trim() && !staffNames.has(order.tailor.trim().toLocaleLowerCase())) {
       errors.push(`Order "${order.id}" is assigned to a missing staff member.`)
     }
@@ -293,12 +303,11 @@ export function validateEntity(collection, record, data, { existing, excludeId }
     ? data[collection].map((item) => item.id === existing.id ? record : item)
     : [record, ...data[collection]] }
   if (existing && collection === 'customers' && existing.name !== record.name) {
-    const orderIds = new Set(data.orders.filter((order) => order.customerId === existing.id).map((order) => order.id))
     nextData = {
       ...nextData,
       measurements: data.measurements.map((item) => item.customerId === existing.id ? { ...item, customer: record.name } : item),
       orders: nextData.orders.map((item) => item.customerId === existing.id ? { ...item, customer: record.name } : item),
-      payments: data.payments.map((item) => orderIds.has(item.orderId) ? { ...item, customer: record.name } : item),
+      payments: data.payments,
     }
   }
   if (existing && collection === 'staff' && existing.name !== record.name) {

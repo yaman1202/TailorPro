@@ -117,6 +117,7 @@ test('order edits and deletion cannot detach or understate recorded payment hist
   assert.equal(validateOrderUpdate(order, { ...order, amount: 59 }, payments).valid, false)
   assert.equal(validateOrderUpdate(order, { ...order, customerId: 'customer-2' }, payments).valid, false)
   assert.equal(validateOrderUpdate(order, { ...order, tailor: '' }, payments).valid, false)
+  assert.equal(validateOrderUpdate(order, { ...order, advance: 20 }, payments).valid, false)
   assert.equal(validateOrderUpdate(order, { ...order, amount: 60 }, payments).valid, true)
   assert.equal(canDeleteOrder(order, payments), false)
   assert.equal(canDeleteOrder(order, []), true)

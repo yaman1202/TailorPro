@@ -90,6 +90,9 @@ export function validatePayment({ order, payments, amount, method, type, id }) {
 
 export function validateOrderUpdate(order, updates, payments) {
   const orderPayments = payments.filter((payment) => payment.orderId === order.id)
+  if (toMinorUnits(updates.advance ?? 0) !== toMinorUnits(order.advance ?? 0)) {
+    return { valid: false, error: 'The recorded order advance cannot be changed. Record additional payments in the ledger.' }
+  }
   if (orderPayments.length && updates.customerId !== order.customerId) {
     return { valid: false, error: 'This order has payment history, so its customer cannot be changed.' }
   }

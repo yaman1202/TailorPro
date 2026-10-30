@@ -1,0 +1,389 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isConfiguredBusiness(businessId) {
+      return businessId == 'tailorpro-dev-802c2';
+    }
+
+    function businessPath(businessId) {
+      return /databases/$(database)/documents/businesses/$(businessId);
+    }
+
+    function isOwner(businessId) {
+      return request.auth != null
+        && isConfiguredBusiness(businessId)
+        && get(businessPath(businessId)).data.ownerUid == request.auth.uid;
+    }
+
+    function advancesWorkspaceRevision(businessId) {
+      let path = /databases/$(database)/documents/businesses/$(businessId)/workspaceMetadata/current;
+      return (!exists(path)
+          && existsAfter(path)
+          && getAfter(path).data.revision == 1)
+        || (exists(path)
+          && existsAfter(path)
+          && getAfter(path).data.revision == get(path).data.revision + 1);
+    }
+
+    function validId(data, documentId) {
+      return data is map && data.id == documentId;
+    }
+
+    function validText(value) {
+      return value is string && value.size() > 0;
+    }
+
+    function validOptionalText(data, field) {
+      return !(field in data) || data[field] is string;
+    }
+
+    function validMoney(value) {
+      return (value is int || value is float) && value >= 0;
+    }
+
+    function validCustomer(data, documentId) {
+      return validId(data, documentId)
+        && data.keys().hasAll(['id', 'name', 'phone'])
+        && data.keys().hasOnly(['id', 'name', 'phone', 'email', 'address', 'city', 'joined'])
+        && validText(data.name)
+        && validText(data.phone)
+        && validOptionalText(data, 'email')
+        && validOptionalText(data, 'address')
+        && validOptionalText(data, 'city')
+        && validOptionalText(data, 'joined');
+    }
+
+    function customerExistsAfter(businessId, customerId) {
+      return existsAfter(/databases/$(database)/documents/businesses/$(businessId)/customers/$(customerId));
+    }
+
+    function measurementBelongsToCustomer(businessId, measurementId, customerId) {
+      let path = /databases/$(database)/documents/businesses/$(businessId)/measurements/$(measurementId);
+      return existsAfter(path) && getAfter(path).data.customerId == customerId;
+    }
+
+    function validMeasurement(data, documentId, businessId) {
+      return validId(data, documentId)
+        && data.keys().hasAll(['id', 'customerId', 'customer', 'garment', 'date', 'version', 'values'])
+        && data.keys().hasAll(['versionKeyId'])
+        && data.keys().hasOnly(['id', 'customerId', 'customer', 'garment', 'date', 'version', 'values', 'versionKeyId', 'unit'])
+        && validText(data.customerId)
+        && customerExistsAfter(businessId, data.customerId)
+        && validText(data.customer)
+        && validText(data.garment)
+        && data.date is string
+        && data.version is int
+        && data.version > 0
+        && data.values is map
+        && data.values.size() > 0
+        && data.values.size() <= 32
+        && validText(data.versionKeyId)
+        && (!('unit' in data) || data.unit in ['in', 'cm']);
+    }
+
+    function versionKeyPath(businessId, keyId) {
+      return /databases/$(database)/documents/businesses/$(businessId)/measurementVersionKeys/$(keyId);
+    }
+
+    function matchingVersionKey(data, documentId, businessId) {
+      let keyPath = versionKeyPath(businessId, data.versionKeyId);
+      return existsAfter(keyPath)
+        && getAfter(keyPath).data.measurementId == documentId
+        && getAfter(keyPath).data.customerId == data.customerId
+        && getAfter(keyPath).data.garment == data.garment
+        && getAfter(keyPath).data.version == data.version;
+    }
+
+    function validVersionKey(data, keyId, businessId) {
+      let measurementPath = /databases/$(database)/documents/businesses/$(businessId)/measurements/$(data.measurementId);
+      return data is map
+        && data.keys().hasAll(['id', 'customerId', 'garment', 'version', 'measurementId'])
+        && data.keys().hasOnly(['id', 'customerId', 'garment', 'version', 'measurementId'])
+        && data.id == keyId
+        && keyId == getAfter(measurementPath).data.versionKeyId
+        && validText(data.customerId)
+        && validText(data.garment)
+        && data.version is int
+        && data.version > 0
+        && validText(data.measurementId)
+        && existsAfter(measurementPath)
+        && getAfter(measurementPath).data.customerId == data.customerId
+        && getAfter(measurementPath).data.garment == data.garment
+        && getAfter(measurementPath).data.version == data.version;
+    }
+
+    function validOrder(data, documentId, businessId) {
+      return validId(data, documentId)
+        && data.keys().hasAll([
+          'id', 'customerId', 'customer', 'garment', 'tailor', 'dueDate',
+          'amount', 'advance', 'status', 'createdAt', 'paidMinorUnits', 'paymentCount'
+        ])
+        && data.keys().hasOnly([
+          'id', 'customerId', 'customer', 'garment', 'tailor', 'dueDate',
+          'amount', 'advance', 'status', 'createdAt', 'paidMinorUnits', 'paymentCount', 'measurementId'
+        ])
+        && validText(data.customerId)
+        && customerExistsAfter(businessId, data.customerId)
+        && validText(data.customer)
+        && validText(data.garment)
+        && data.tailor is string
+        && data.dueDate is string
+        && validMoney(data.amount)
+        && data.amount > 0
+        && validMoney(data.advance)
+        && data.advance <= data.amount
+        && data.status in [
+          'New', 'Confirmed', 'Assigned', 'Stitching', 'Quality Check',
+          'Ready', 'Completed', 'Cancelled'
+        ]
+        && data.createdAt is string
+        && data.paidMinorUnits is int
+        && data.paidMinorUnits >= 0
+        && data.paymentCount is int
+        && data.paymentCount >= 0
+        && data.paidMinorUnits <= data.amount * 100
+        && (!('measurementId' in data)
+          || (validText(data.measurementId)
+            && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)));
+    }
+
+    function allowedStatusTransition(before, after) {
+      return before == after
+        || (before != 'Completed' && before != 'Cancelled' && after == 'Cancelled')
+        || (before == 'New' && after == 'Confirmed')
+        || (before == 'Confirmed' && after == 'Assigned')
+        || (before == 'Assigned' && after == 'Stitching')
+        || (before == 'Stitching' && after == 'Quality Check')
+        || (before == 'Quality Check' && (after == 'Stitching' || after == 'Ready'))
+        || (before == 'Ready' && after == 'Completed');
+    }
+
+    function accountingPath(businessId, orderId) {
+      return /databases/$(database)/documents/businesses/$(businessId)/orderAccounting/$(orderId);
+    }
+
+    function validAccounting(data, orderId, businessId) {
+      let orderDoc = getAfter(/databases/$(database)/documents/businesses/$(businessId)/orders/$(orderId));
+      return data is map
+        && data.keys().hasAll(['orderId', 'paidMinorUnits', 'paymentCount'])
+        && data.keys().hasOnly(['orderId', 'paidMinorUnits', 'paymentCount'])
+        && data.orderId == orderId
+        && data.paidMinorUnits is int
+        && data.paidMinorUnits >= 0
+        && data.paymentCount is int
+        && data.paymentCount >= 0
+        && orderDoc.data.id == orderId
+        && orderDoc.data.paidMinorUnits == data.paidMinorUnits
+        && orderDoc.data.paymentCount == data.paymentCount
+        && data.paidMinorUnits <= orderDoc.data.amount * 100;
+    }
+
+    function validPayment(data, documentId, businessId) {
+      let orderDoc = getAfter(/databases/$(database)/documents/businesses/$(businessId)/orders/$(data.orderId));
+      let accountDoc = getAfter(accountingPath(businessId, data.orderId));
+      let accountBeforePath = accountingPath(businessId, data.orderId);
+      let previousPaid = exists(accountBeforePath) ? get(accountBeforePath).data.get('paidMinorUnits', 0) : 0;
+      let previousCount = exists(accountBeforePath) ? get(accountBeforePath).data.get('paymentCount', 0) : 0;
+      return validId(data, documentId)
+        && data.keys().hasAll(['id', 'orderId', 'customer', 'date', 'amount', 'method', 'type'])
+        && data.keys().hasOnly(['id', 'orderId', 'customer', 'date', 'amount', 'method', 'type'])
+        && validText(data.orderId)
+        && orderDoc.data.id == data.orderId
+        && data.customer == orderDoc.data.customer
+        && data.date is string
+        && validMoney(data.amount)
+        && data.amount > 0
+        && data.method in ['UPI', 'Cash', 'Card', 'Bank transfer', 'Cheque']
+        && data.type in ['Advance', 'Balance', 'Partial']
+        && accountDoc.data.orderId == data.orderId
+        && orderDoc.data.paidMinorUnits == accountDoc.data.paidMinorUnits
+        && orderDoc.data.paymentCount == accountDoc.data.paymentCount
+        && orderDoc.data.status != 'Cancelled'
+        && accountDoc.data.paidMinorUnits >= previousPaid + data.amount * 100
+        && accountDoc.data.paymentCount >= previousCount + 1
+        && accountDoc.data.paidMinorUnits <= orderDoc.data.amount * 100;
+    }
+
+    function validSettings(data, documentId) {
+      return documentId == 'business-profile'
+        && data is map
+        && data.keys().hasAll([
+          'businessName', 'owner', 'email', 'phone',
+          'currency', 'reminders', 'lowStockAlerts'
+        ])
+        && data.keys().hasOnly([
+          'businessName', 'owner', 'email', 'phone', 'address',
+          'currency', 'reminders', 'lowStockAlerts'
+        ])
+        && validText(data.businessName)
+        && validText(data.owner)
+        && validText(data.email)
+        && validText(data.phone)
+        && validOptionalText(data, 'address')
+        && data.currency in ['INR', 'USD', 'GBP', 'EUR']
+        && data.reminders is bool
+        && data.lowStockAlerts is bool;
+    }
+
+    match /businesses/{businessId} {
+      allow get: if isConfiguredBusiness(businessId)
+        && request.auth != null
+        && resource.data.ownerUid == request.auth.uid
+        && resource.data.keys().hasOnly(['ownerUid']);
+      allow list, create, update, delete: if false;
+
+      match /customers/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validCustomer(request.resource.data, documentId);
+        allow update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validCustomer(request.resource.data, documentId)
+          && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(businessId) && advancesWorkspaceRevision(businessId);
+      }
+
+      match /measurements/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validMeasurement(request.resource.data, documentId, businessId)
+          && matchingVersionKey(request.resource.data, documentId, businessId);
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /measurementVersionKeys/{keyId} {
+        allow get, list: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validVersionKey(request.resource.data, keyId, businessId);
+        allow update, delete: if false;
+      }
+
+      match /orderAccounting/{orderId} {
+        allow get, list: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validAccounting(request.resource.data, orderId, businessId);
+        allow update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validAccounting(request.resource.data, orderId, businessId)
+          && request.resource.data.orderId == resource.data.orderId
+          && request.resource.data.paidMinorUnits >= resource.data.paidMinorUnits
+          && request.resource.data.paymentCount >= resource.data.get('paymentCount', 0);
+        allow delete: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && resource.data.paidMinorUnits == 0
+          && resource.data.get('paymentCount', 0) == 0
+          && !existsAfter(/databases/$(database)/documents/businesses/$(businessId)/orders/$(orderId));
+      }
+
+      match /orders/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validOrder(request.resource.data, documentId, businessId)
+          && request.resource.data.status == 'New'
+          && existsAfter(accountingPath(businessId, documentId))
+          && getAfter(accountingPath(businessId, documentId)).data.paidMinorUnits == request.resource.data.paidMinorUnits
+          && getAfter(accountingPath(businessId, documentId)).data.paymentCount == request.resource.data.paymentCount
+          && request.resource.data.paidMinorUnits >= request.resource.data.advance * 100;
+        allow update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validOrder(request.resource.data, documentId, businessId)
+          && request.resource.data.id == resource.data.id
+          && allowedStatusTransition(resource.data.status, request.resource.data.status)
+          && (resource.data.paymentCount == 0
+            || request.resource.data.customerId == resource.data.customerId)
+          && exists(accountingPath(businessId, documentId))
+          && request.resource.data.paidMinorUnits == getAfter(accountingPath(businessId, documentId)).data.paidMinorUnits
+          && request.resource.data.paymentCount == getAfter(accountingPath(businessId, documentId)).data.paymentCount
+          && request.resource.data.paidMinorUnits >= resource.data.get('paidMinorUnits', 0)
+          && request.resource.data.paymentCount >= resource.data.get('paymentCount', 0)
+          && request.resource.data.paidMinorUnits <= request.resource.data.amount * 100;
+        allow delete: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && resource.data.get('paidMinorUnits', -1) == 0
+          && resource.data.get('paymentCount', -1) == 0;
+      }
+
+      match /payments/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validPayment(request.resource.data, documentId, businessId);
+        allow update, delete: if false;
+      }
+
+      match /staff/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create, update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && request.resource.data is map
+          && validId(request.resource.data, documentId)
+          && request.resource.data.keys().hasAll(['id', 'name', 'role', 'phone', 'active'])
+          && request.resource.data.keys().hasOnly(['id', 'name', 'role', 'phone', 'email', 'active'])
+          && validText(request.resource.data.name)
+          && request.resource.data.role in [
+            'Master Tailor', 'Senior Tailor', 'Tailor', 'Finishing Specialist', 'Studio Assistant'
+          ]
+          && validText(request.resource.data.phone)
+          && validOptionalText(request.resource.data, 'email')
+          && request.resource.data.active is bool;
+        allow delete: if isOwner(businessId) && advancesWorkspaceRevision(businessId);
+      }
+
+      match /inventory/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create, update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && request.resource.data is map
+          && validId(request.resource.data, documentId)
+          && request.resource.data.keys().hasAll([
+            'id', 'name', 'category', 'sku', 'quantity', 'unit', 'reorderAt', 'price'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'id', 'name', 'category', 'sku', 'quantity', 'unit', 'reorderAt', 'price'
+          ])
+          && validText(request.resource.data.name)
+          && request.resource.data.category in ['Fabric', 'Accessory']
+          && validText(request.resource.data.sku)
+          && validMoney(request.resource.data.quantity)
+          && request.resource.data.unit in ['metres', 'pieces', 'spools', 'rolls']
+          && validMoney(request.resource.data.reorderAt)
+          && validMoney(request.resource.data.price);
+        allow delete: if isOwner(businessId) && advancesWorkspaceRevision(businessId);
+      }
+
+      match /settings/{documentId} {
+        allow read: if isOwner(businessId);
+        allow create, update: if isOwner(businessId)
+          && advancesWorkspaceRevision(businessId)
+          && validSettings(request.resource.data, documentId);
+        allow delete: if false;
+      }
+
+      match /workspaceMetadata/{documentId} {
+        allow get: if isOwner(businessId) && documentId == 'current';
+        allow list: if false;
+        allow create: if isOwner(businessId)
+          && documentId == 'current'
+          && request.resource.data.keys().hasOnly(['revision'])
+          && request.resource.data.revision == 1;
+        allow update: if isOwner(businessId)
+          && documentId == 'current'
+          && request.resource.data.keys().hasOnly(['revision'])
+          && request.resource.data.revision is int
+          && request.resource.data.revision == resource.data.revision + 1;
+        allow delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { initialData } from '../data/initialData.js'
 import { measurementFields } from '../data/measurementTemplates.js'
-import { createBackup, validateBackup } from './backupService.js'
+import { createBackup, previewBackup, validateBackup } from './backupService.js'
 import {
   validateCustomer,
   validateData,
@@ -28,8 +28,10 @@ const isInvalid = (validation, message) => {
 
 test('customer validator enforces identity, required contact fields, and email format', () => {
   isValid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555-0101', email: 'asha@example.com' }))
+  isValid(validateCustomer({ id: 'customer-2', name: 'Mina', phone: '555-0102', address: '12 Park Road', city: 'Pune' }))
   isInvalid(validateCustomer({ id: 'customer-1', name: ' ', phone: '' }), /name is required.*phone is required/i)
   isInvalid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555', email: 'not-an-email' }), /valid email/i)
+  isInvalid(validateCustomer({ id: 'customer-1', name: 'Asha', phone: '555', address: 12 }), /address must be text/i)
   isInvalid(validateCustomer({ name: 'Asha', phone: '555' }), /id is required/i)
 })
 
@@ -48,6 +50,8 @@ test('measurement validator enforces template fields and non-negative numeric va
   isInvalid(validateMeasurement({ ...measurement, version: 0 }), /positive integer/i)
   isInvalid(validateMeasurement({ ...measurement, values: { ...measurement.values, Neck: '-1' } }), /non-negative number/i)
   isInvalid(validateMeasurement({ ...measurement, values: {} }), /at least one/i)
+  isValid(validateMeasurement({ ...measurement, unit: 'cm', values: { ...measurement.values, 'Custom seam': '4.5' } }))
+  isInvalid(validateMeasurement({ ...measurement, unit: 'feet' }), /unit must be inches or centimetres/i)
   const duplicateVersionData = data()
   isInvalid(validateEntity('measurements', { ...measurement, customerId: 'c1', version: 2 }, duplicateVersionData), /version 2 already exists/i)
 })
@@ -123,6 +127,18 @@ test('relationship validation rejects missing customer, staff, and order referen
   }, data()), /missing customer/i)
 })
 
+test('orders can link only to a measurement profile owned by the same customer', () => {
+  const fixture = data()
+  const order = fixture.orders[0]
+  const ownProfile = fixture.measurements.find((profile) => profile.customerId === order.customerId)
+  assert.ok(ownProfile)
+  isValid(validateEntity('orders', { ...order, measurementId: ownProfile.id }, fixture, { existing: order }))
+
+  const otherProfile = fixture.measurements.find((profile) => profile.customerId !== order.customerId)
+  isInvalid(validateEntity('orders', { ...order, measurementId: otherProfile.id }, fixture, { existing: order }), /different customer/i)
+  isInvalid(validateEntity('orders', { ...order, measurementId: 'missing-profile' }, fixture, { existing: order }), /missing measurement profile/i)
+})
+
 test('deletion policies protect referenced customers, assigned staff, measurements, and ledger entries', () => {
   const fixture = data()
   isInvalid(validateDeletion('customers', fixture.customers[0], fixture), /cannot be deleted/i)
@@ -143,6 +159,29 @@ test('backup validation rejects orphaned relationships and aggregate overpayment
   overpaid.payments.push({ ...overpaid.payments[0], id: 'payment-extra', amount: overpaid.orders[0].amount })
   isInvalid(validateBackup(createBackup(overpaid)), /exceed its total amount/i)
 
+  const withCustomerAddress = structuredClone(fixture)
+  withCustomerAddress.customers[0].address = '8 Needle Lane'
+  isValid(validateBackup(createBackup(withCustomerAddress)))
   isValid(validateBackup(createBackup(fixture)))
   isValid(validateData(fixture, { allowLegacyMeasurements: true }))
+})
+
+test('backup preview reports record counts and all validation errors without restoring', () => {
+  const fixture = data()
+  const preview = previewBackup(createBackup(fixture))
+  assert.equal(preview.valid, true)
+  assert.deepEqual(preview.counts, {
+    customers: fixture.customers.length,
+    measurements: fixture.measurements.length,
+    orders: fixture.orders.length,
+    payments: fixture.payments.length,
+    staff: fixture.staff.length,
+    inventory: fixture.inventory.length,
+  })
+
+  const invalid = structuredClone(fixture)
+  invalid.orders[0].customerId = 'missing-customer'
+  const invalidPreview = previewBackup(createBackup(invalid))
+  assert.equal(invalidPreview.valid, false)
+  assert.match(invalidPreview.errors.join(' '), /missing customer/i)
 })

@@ -3,16 +3,22 @@ const repositoryMethods = [
   'addRecord',
   'updateRecord',
   'deleteRecord',
+  'createOrder',
+  'updateOrder',
+  'transitionOrder',
+  'recordPayment',
+  'exportBackup',
   'updateSettings',
   'replaceData',
   'retrySave',
 ]
 
 export class DataRepositoryError extends Error {
-  constructor(operation, cause, data = undefined) {
+  constructor(operation, cause, data = undefined, { recoverableLocalWrite = false } = {}) {
     super(cause?.message || `Unable to ${operation} TailorPro data.`, { cause })
     this.name = 'DataRepositoryError'
     this.operation = operation
+    this.recoverableLocalWrite = recoverableLocalWrite
     if (data !== undefined) this.data = data
   }
 }
@@ -23,6 +29,11 @@ export class DataRepositoryError extends Error {
  * @property {(collection: string, record: object) => Promise<object>} addRecord
  * @property {(collection: string, id: string, updates: object) => Promise<object>} updateRecord
  * @property {(collection: string, id: string) => Promise<object>} deleteRecord
+ * @property {(order: object, initialPayment?: object) => Promise<object>} createOrder
+ * @property {(id: string, updates: object) => Promise<object>} updateOrder
+ * @property {(id: string, nextStatus: string) => Promise<object>} transitionOrder
+ * @property {(payment: object) => Promise<object>} recordPayment
+ * @property {() => Promise<object>} exportBackup
  * @property {(updates: object) => Promise<object>} updateSettings
  * @property {(data: object) => Promise<object>} replaceData
  * @property {() => Promise<object>} retrySave
@@ -36,4 +47,3 @@ export function assertDataRepository(repository) {
   }
   return repository
 }
-

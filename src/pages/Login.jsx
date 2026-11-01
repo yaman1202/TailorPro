@@ -41,7 +41,7 @@ export default function Login() {
       <section className="login-card">
         <div className="login-brand">
           <span className="login-brand-mark"><Scissors size={21} strokeWidth={1.8} /></span>
-          <span className="login-brand-name">tailor<span>pro</span></span>
+          <span className="login-brand-name">Renuka <span>Tailor</span></span>
           <span className="login-brand-caption">ATELIER MANAGEMENT</span>
         </div>
         <div className="login-heading">

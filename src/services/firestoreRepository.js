@@ -623,10 +623,13 @@ export class FirestoreRepository {
     return result.record
   }
 
-  async createOrder(order, optionalInitialPayment) {
+  async createOrder(order, optionalInitialPayment, optionalMeasurement) {
     const newOrder = { ...order, id: order.id || makeRecordId('orders') }
     const initialPayment = optionalInitialPayment
       ? { ...optionalInitialPayment, id: optionalInitialPayment.id || makeRecordId('payments') }
+      : null
+    const newMeasurement = optionalMeasurement
+      ? { ...optionalMeasurement, id: optionalMeasurement.id || makeRecordId('measurements') }
       : null
     return this.runTransaction('create order', async (transaction, firestore, sdk, baseData) => {
       const current = this.readWorkspace(baseData)
@@ -637,7 +640,20 @@ export class FirestoreRepository {
       if (current.orders.some((item) => item.id === newOrder.id)) {
         throw new Error(`orders already contains a record with ID "${newOrder.id}".`)
       }
-      const orderValidation = validateEntity('orders', newOrder, current)
+      let nextData = current
+      let measurementKeyRef
+      if (newMeasurement) {
+        measurementKeyRef = documentRef(firestore, sdk, 'measurementVersionKeys', measurementVersionKeyId(newMeasurement))
+        const keySnapshot = await transaction.get(measurementKeyRef)
+        if (keySnapshot.exists()) {
+          throw new Error(`Measurement version ${newMeasurement.version} already exists for this customer and garment.`)
+        }
+        const measurementValidation = validateEntity('measurements', newMeasurement, nextData)
+        if (!measurementValidation.valid) throw new Error(measurementValidation.error)
+        nextData = measurementValidation.data
+        newOrder.measurementId = newMeasurement.id
+      }
+      const orderValidation = validateEntity('orders', newOrder, nextData)
       if (!orderValidation.valid) throw new Error(orderValidation.error)
       if (orderValidation.data.orders.find((item) => item.id === newOrder.id)?.status !== 'New') {
         throw new Error('New orders must begin in the New status.')
@@ -646,7 +662,7 @@ export class FirestoreRepository {
         throw new Error('An order advance must be recorded with its initial payment.')
       }
 
-      let nextData = orderValidation.data
+      nextData = orderValidation.data
       if (initialPayment) {
         if (toMinorUnits(initialPayment.amount) !== toMinorUnits(newOrder.advance || 0)) {
           throw new Error('Initial payment amount must match the order advance.')
@@ -670,8 +686,17 @@ export class FirestoreRepository {
         paymentCount: initialPayment ? 1 : 0,
         ...(initialPayment ? { lastPaymentId: initialPayment.id } : {}),
       })
-      diffDatasetWrites(transaction, firestore, sdk, current, nextData, 1)
-      return { data: nextData, record: newOrder, payment: initialPayment }
+      if (newMeasurement) {
+        transaction.set(measurementKeyRef, {
+          id: measurementKeyRef.id,
+          customerId: newMeasurement.customerId,
+          garment: newMeasurement.garment,
+          version: newMeasurement.version,
+          measurementId: newMeasurement.id,
+        })
+      }
+      diffDatasetWrites(transaction, firestore, sdk, current, nextData, 1 + (newMeasurement ? 1 : 0))
+      return { data: nextData, record: newOrder, payment: initialPayment, measurement: newMeasurement }
     })
   }
 

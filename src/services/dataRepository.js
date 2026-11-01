@@ -30,7 +30,7 @@ export class DataRepositoryError extends Error {
  * @property {(collection: string, record: object) => Promise<object>} addRecord
  * @property {(collection: string, id: string, updates: object) => Promise<object>} updateRecord
  * @property {(collection: string, id: string) => Promise<object>} deleteRecord
- * @property {(order: object, initialPayment?: object) => Promise<object>} createOrder
+ * @property {(order: object, initialPayment?: object, measurement?: object) => Promise<object>} createOrder
  * @property {(id: string, updates: object) => Promise<object>} updateOrder
  * @property {(id: string, nextStatus: string) => Promise<object>} transitionOrder
  * @property {(id: string, method: string) => Promise<object>} completeOrderWithPayment

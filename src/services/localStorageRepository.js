@@ -102,21 +102,30 @@ export class LocalStorageRepository {
     })
   }
 
-  createOrder(order, optionalInitialPayment) {
+  createOrder(order, optionalInitialPayment, optionalMeasurement) {
     const newOrder = { ...order, id: order.id || createRecordId('orders') }
     const initialPayment = optionalInitialPayment
       ? { ...optionalInitialPayment, id: optionalInitialPayment.id || createRecordId('payments') }
+      : null
+    const newMeasurement = optionalMeasurement
+      ? { ...optionalMeasurement, id: optionalMeasurement.id || createRecordId('measurements') }
       : null
     return this.mutate('create order', (current) => {
       if (current.orders.some((item) => item.id === newOrder.id)) {
         throw new Error(`orders already contains a record with ID "${newOrder.id}".`)
       }
-      const orderValidation = validateEntity('orders', newOrder, current)
+      let nextData = current
+      if (newMeasurement) {
+        const measurementValidation = validateEntity('measurements', newMeasurement, nextData)
+        if (!measurementValidation.valid) throw new Error(measurementValidation.error)
+        nextData = measurementValidation.data
+      }
+      const orderValidation = validateEntity('orders', newOrder, nextData)
       if (!orderValidation.valid) throw new Error(orderValidation.error)
       if (Math.round(Number(newOrder.advance || 0) * 100) > 0 && !initialPayment) {
         throw new Error('An order advance must be recorded with its initial payment.')
       }
-      let nextData = orderValidation.data
+      nextData = orderValidation.data
       if (initialPayment) {
         if (Math.round(Number(initialPayment.amount) * 100) !== Math.round(Number(newOrder.advance || 0) * 100)) {
           throw new Error('Initial payment amount must match the order advance.')

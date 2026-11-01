@@ -189,13 +189,13 @@ export default function Customers() {
 }
 
 function CustomerForm({ editing, form, setForm, onSave, onClose, saving, feedback }) {
-  return <Modal title={editing ? 'Edit customer' : 'Add customer'} description="A few details to make every visit feel personal." onClose={onClose}><form onSubmit={onSave} className="form-stack">
+  return <Modal title={editing ? 'Edit customer' : 'Add customer'} description={editing ? 'Update this customer’s contact details.' : 'After saving, you’ll go straight to their measurement profile.'} onClose={onClose}><form onSubmit={onSave} className="form-stack">
     <FormField label="Customer name"><input required autoFocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Ananya Iyer" /></FormField>
     <FormField label="Phone number"><input required type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+91 98765 43210" /></FormField>
     <FormField label="Email address"><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="name@email.com" /></FormField>
     <FormField label="Address"><input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Street address" /></FormField>
     <FormField label="City"><input value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} placeholder="Mumbai" /></FormField>
     {feedback?.type === 'error' && <p className="customer-feedback customer-feedback-error" role="alert">{feedback.text}</p>}
-    <div className="modal-actions"><Button variant="secondary" type="button" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Add customer'}</Button></div>
+    <div className="modal-actions"><Button variant="secondary" type="button" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Add & record measurements'}</Button></div>
   </form></Modal>
 }

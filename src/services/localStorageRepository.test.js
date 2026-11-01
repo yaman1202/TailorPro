@@ -113,6 +113,40 @@ test('already-paid orders complete without recording a duplicate payment', async
   assert.equal(completed.data.payments.filter((payment) => payment.orderId === order.id).length, 1)
 })
 
+test('creating an order with measurements saves and links the measurement in one operation', async () => {
+  const storage = installStorage()
+  const repository = createLocalStorageRepository()
+  await repository.load()
+  const order = {
+    id: 'order-with-measurements',
+    customerId: 'c1',
+    customer: 'Aarav Mehta',
+    garment: 'Formal shirt',
+    tailor: '',
+    dueDate: '2026-11-15',
+    amount: 1000,
+    advance: 0,
+    status: 'New',
+    createdAt: '2026-10-30',
+  }
+  const template = measurementFields['Formal shirt']
+  const measurement = {
+    id: 'measurement-for-new-order',
+    customerId: order.customerId,
+    customer: order.customer,
+    garment: 'Formal shirt',
+    date: order.createdAt,
+    version: 1,
+    unit: 'in',
+    values: Object.fromEntries(template.map((field, index) => [field, String(10 + index)])),
+  }
+  const created = await repository.createOrder({ ...order, measurementId: measurement.id }, undefined, measurement)
+
+  assert.equal(created.record.measurementId, measurement.id)
+  assert.equal(created.data.measurements.find((profile) => profile.id === measurement.id).customerId, order.customerId)
+  assert.equal(JSON.parse(storage.value).orders.find((saved) => saved.id === order.id).measurementId, measurement.id)
+})
+
 test('repository supports successful create, update, delete, and settings operations', async () => {
   const storage = installStorage()
   const repository = createLocalStorageRepository()

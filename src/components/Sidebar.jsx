@@ -37,7 +37,7 @@ export default function Sidebar({ open, onClose }) {
     <>
       {open && <button className="sidebar-scrim" aria-label="Close navigation" onClick={onClose} />}
       <aside className={`sidebar ${open ? 'sidebar-open' : ''}`}>
-        <div className="brand-row"><div className="brand-mark"><Scissors size={19} strokeWidth={1.8} /></div><div className="brand-name">tailor<span>pro</span><small>ATELIER MANAGEMENT</small></div><button className="sidebar-close" onClick={onClose} aria-label="Close sidebar"><PanelLeftClose size={18} /></button></div>
+        <div className="brand-row"><div className="brand-mark"><Scissors size={19} strokeWidth={1.8} /></div><div className="brand-name">Renuka <span>Tailor</span><small>ATELIER MANAGEMENT</small></div><button className="sidebar-close" onClick={onClose} aria-label="Close sidebar"><PanelLeftClose size={18} /></button></div>
         <div className="workspace-switch"><span className="workspace-avatar">{(settings.businessName || 'Atelier TailorPro')[0]}</span><div><strong>{settings.businessName || 'Atelier TailorPro'}</strong><span className="plan-badge">Professional</span></div><ChevronRight size={15} /></div>
         <nav className="side-nav">
           {sections.map((section) => <div className="nav-section" key={section.title}><div className="nav-label">{section.title}</div>{section.links.map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} onClick={onClose} end={to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Icon size={17} strokeWidth={1.8} /><span>{label}</span>{to === '/orders' && <small className="nav-count" aria-label="3 order notifications">3</small>}</NavLink>)}</div>)}

@@ -650,6 +650,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .search-box input, .form-field input, .form-field select, .form-field textarea, .select-wrap select { font-size: 12px; }
 .form-field, .form-hint, .result-count, .page-summary, .info-banner strong, .inventory-banner strong { font-size: 11px; }
 .info-banner p, .inventory-banner p, .settings-card-heading p { font-size: 10px; }
+.order-customer-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.measurement-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; color: #788294; background: transparent; font-size: 10px; }
+.measurement-toggle:hover, .measurement-toggle:focus-visible { color: #9b773c; }
+.measurement-toggle svg:last-child { transition: transform .18s ease; }
+.measurement-toggle[aria-expanded="true"] svg:last-child { transform: rotate(180deg); }
+.data-table tr.data-table-expanded > td { padding: 0; background: #fbfaf7; }
+.order-measurement-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; border-top: 1px solid #eeece5; }
+.order-measurement-panel-heading, .order-measurement-profile-heading { display: flex; align-items: center; gap: 8px; color: #596273; font-size: 12px; }
+.order-measurement-panel-heading svg { color: #a9864e; }
+.order-measurement-profile { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid #efeee9; border-radius: 7px; background: white; }
+.order-measurement-profile-heading { justify-content: space-between; font-size: 11px; }
+.order-measurement-profile-heading > span { color: #8c929b; }
+.measurement-status-summary { color: #777f8b; }
+.measurement-record-button { min-width: 190px; min-height: 42px; justify-content: center; padding: 10px 16px; font-size: 13px; font-weight: 600; box-shadow: 0 3px 10px rgba(23,37,61,.12); }
+.measurement-record-button svg { width: 18px; height: 18px; }
+.order-inline-measurements { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid #eae5da; border-radius: 9px; background: #fcfbf8; }
+.order-inline-measurements-heading { display: flex; align-items: center; gap: 10px; }
+.measurement-record-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 9px; color: #94733d; background: #f1e8d6; }
+.order-inline-measurements-heading strong, .order-inline-measurements-heading small { display: block; }
+.order-inline-measurements-heading strong { color: #384457; font-size: 13px; }
+.order-inline-measurements-heading small { margin-top: 3px; color: #7e8793; font-size: 11px; }
+.order-inline-measurements > .form-field { max-width: 260px; }
+.order-inline-measurements .measurement-fields { padding: 0; }
 .modal-heading p { font-size: 12px; }
 .login-heading p, .login-field, .login-field input, .login-submit { font-size: 12px; }
 .login-note, .login-footer span, .login-copyright { font-size: 10px; }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Eye, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, Eye, Pencil, Ruler, Trash2 } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { formatCurrency } from '../services/formatters.js'
 import { createOrderId, getOrderBalance, getTotalOrderValue, getTotalPaid, normalizeMoney } from '../services/orderAccounting.js'
@@ -8,12 +8,17 @@ import { activeOrderStatuses, createOrderRecord, getAllowedOrderStatuses, orderS
 import { AddButton, Button, FormField, Modal, PageHeading, SearchBox, Select, TableFrame } from '../components/UI.jsx'
 import CompleteOrderModal from '../components/CompleteOrderModal.jsx'
 import DataTable from '../components/DataTable.jsx'
-import { getMeasurementGarmentsForOrder } from '../data/measurementTemplates.js'
+import { getMeasurementGarmentsForOrder, measurementFields } from '../data/measurementTemplates.js'
 import { validateDeletion, validateEntity } from '../services/validation.js'
 
 const garments = ['Shirt', 'Formal shirt', 'Trouser', 'Suit/Blazer', 'Two-piece suit', 'Kurta', 'Blouse', 'Suit', 'Dress', 'Anarkali suit', 'Evening dress']
 const blank = { customerId: '', garment: 'Formal shirt', tailor: '', dueDate: '', amount: '', advance: '' }
 const newCustomerOption = '__new_customer__'
+
+function createMeasurementId() {
+  const suffix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `m-${suffix}`
+}
 
 export default function Orders() {
   const { orders, customers, measurements, staff, payments, settings, createCustomer, createOrder, updateOrder, transitionOrder, completeOrderWithPayment, deleteRecord } = useAppData()
@@ -29,9 +34,12 @@ export default function Orders() {
   const [pendingStatuses, setPendingStatuses] = useState({})
   const [completionOrder, setCompletionOrder] = useState(null)
   const [completingOrder, setCompletingOrder] = useState(false)
+  const [expandedMeasurementOrder, setExpandedMeasurementOrder] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(blank)
+  const [measurementUnit, setMeasurementUnit] = useState('in')
+  const [measurementValues, setMeasurementValues] = useState({})
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '', address: '', city: '' })
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [customerFeedback, setCustomerFeedback] = useState(null)
@@ -48,8 +56,8 @@ export default function Orders() {
     if (sortBy === 'price-low') return Number(left.amount || 0) - Number(right.amount || 0)
     return (right.createdAt || '').localeCompare(left.createdAt || '')
   }), [filtered, sortBy])
-  const openCreate = () => { setEditing(null); setForm({ ...blank, measurementId: '' }); setNewCustomer({ name: '', phone: '', email: '', address: '', city: '' }); setCustomerFeedback(null); setModalOpen(true) }
-  const openEdit = (order) => { setEditing(order); setForm({ customerId: order.customerId, garment: order.garment, measurementId: order.measurementId || '', tailor: order.tailor || '', dueDate: order.dueDate, amount: order.amount, advance: order.advance }); setCustomerFeedback(null); setModalOpen(true) }
+  const openCreate = () => { setEditing(null); setForm({ ...blank, measurementId: '' }); setMeasurementUnit('in'); setMeasurementValues({}); setNewCustomer({ name: '', phone: '', email: '', address: '', city: '' }); setCustomerFeedback(null); setModalOpen(true) }
+  const openEdit = (order) => { setEditing(order); setForm({ customerId: order.customerId, garment: order.garment, measurementId: order.measurementId || '', tailor: order.tailor || '', dueDate: order.dueDate, amount: order.amount, advance: order.advance }); setMeasurementValues({}); setCustomerFeedback(null); setModalOpen(true) }
   const addCustomerFromOrder = async () => {
     if (savingCustomer) return
     const values = Object.fromEntries(Object.entries(newCustomer).map(([field, value]) => [field, value.trim()]))
@@ -115,7 +123,41 @@ export default function Orders() {
       setSavingOrder(false)
       return
     }
-    const orderValues = { customerId: customer.id, customer: customer.name, garment: form.garment, ...(editing ? { measurementId: form.measurementId || null } : form.measurementId ? { measurementId: form.measurementId } : {}), tailor: form.tailor, dueDate: form.dueDate, amount: normalizeMoney(form.amount), advance: normalizeMoney(form.advance || 0) }
+    const templateGarment = getMeasurementGarmentsForOrder(form.garment).find((garment) => measurementFields[garment])
+    const templateFields = measurementFields[templateGarment] || []
+    const hasMeasurementInput = !editing && Object.values(measurementValues).some((value) => String(value).trim() !== '')
+    let newMeasurement
+    if (hasMeasurementInput) {
+      const version = measurements
+        .filter((profile) => profile.customerId === customer.id && profile.garment === templateGarment)
+        .reduce((max, profile) => Math.max(max, profile.version || 0), 0) + 1
+      newMeasurement = {
+        id: createMeasurementId(),
+        customerId: customer.id,
+        customer: customer.name,
+        garment: templateGarment,
+        date: new Date().toISOString().slice(0, 10),
+        version,
+        unit: measurementUnit,
+        values: Object.fromEntries(templateFields.map((field) => [field, String(measurementValues[field] || '').trim()])),
+      }
+      const measurementValidation = validateEntity('measurements', newMeasurement, { customers, measurements, orders, payments, staff, inventory: [] })
+      if (!measurementValidation.valid) {
+        window.alert(measurementValidation.error)
+        setSavingOrder(false)
+        return
+      }
+    }
+    const orderValues = {
+      customerId: customer.id,
+      customer: customer.name,
+      garment: form.garment,
+      ...((newMeasurement?.id || form.measurementId) ? { measurementId: newMeasurement?.id || form.measurementId } : {}),
+      tailor: form.tailor,
+      dueDate: form.dueDate,
+      amount: normalizeMoney(form.amount),
+      advance: normalizeMoney(form.advance || 0),
+    }
     if (editing) {
       const validation = validateEntity('orders', { ...editing, ...orderValues }, { customers, measurements, orders, payments, staff, inventory: [] }, { existing: editing })
       if (!validation.valid) {
@@ -130,7 +172,7 @@ export default function Orders() {
     } else {
       const id = createOrderId()
       const order = createOrderRecord(orderValues, id)
-      const data = { customers, measurements, orders, payments, staff, inventory: [] }
+      const data = { customers, measurements: newMeasurement ? [newMeasurement, ...measurements] : measurements, orders, payments, staff, inventory: [] }
       const validation = validateEntity('orders', order, data)
       if (!validation.valid) {
         window.alert(validation.error)
@@ -156,7 +198,7 @@ export default function Orders() {
       const initialPayment = orderValues.advance > 0
         ? { orderId: id, customer: customer.name, date: new Date().toISOString().slice(0, 10), amount: orderValues.advance, method: 'Cash', type: 'Advance' }
         : undefined
-      if (!await createOrder(order, initialPayment)) {
+      if (!await createOrder(order, initialPayment, newMeasurement)) {
         setSavingOrder(false)
         return
       }
@@ -172,9 +214,30 @@ export default function Orders() {
     }
     if (window.confirm(`Delete order ${order.id}?`)) deleteRecord('orders', order.id)
   }
+  const renderMeasurementPanel = (order) => {
+    const linkedProfile = measurements.find((profile) => profile.id === order.measurementId)
+    const relevantGarments = getMeasurementGarmentsForOrder(order.garment)
+    const latestByGarment = new Map()
+    measurements
+      .filter((profile) => profile.customerId === order.customerId && relevantGarments.includes(profile.garment))
+      .sort((left, right) => Number(right.version) - Number(left.version))
+      .forEach((profile) => {
+        if (!latestByGarment.has(profile.garment)) latestByGarment.set(profile.garment, profile)
+      })
+    const profiles = linkedProfile ? [linkedProfile] : [...latestByGarment.values()]
+    return <div className="order-measurement-panel">
+      <div className="order-measurement-panel-heading"><Ruler size={16} /><strong>{order.customer} · {order.garment} measurements</strong></div>
+      {profiles.length ? profiles.map((profile) => (
+        <section className="order-measurement-profile" key={profile.id}>
+          <div className="order-measurement-profile-heading"><strong>{profile.garment} · Version {profile.version}</strong><span>{profile.unit || 'in'}</span></div>
+          <div className="order-measurement-values">{Object.entries(profile.values || {}).map(([field, value]) => <span key={field}>{field}<strong>{value} {profile.unit || 'in'}</strong></span>)}</div>
+        </section>
+      )) : <p className="form-hint">No saved fitting profile for this garment. <Link className="text-link" to={`/measurements?customerId=${encodeURIComponent(order.customerId)}&open=1`}>Record measurements</Link></p>}
+    </div>
+  }
   const columns = [
     { key: 'id', label: 'ORDER', render: (order) => <Link className="order-link" to={`/orders/${order.id}`}>{order.id}</Link> },
-    { key: 'customer', label: 'CUSTOMER', render: (order) => <span className="customer-cell"><span className="mini-avatar">{order.customer.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><strong>{order.customer}</strong></span> },
+    { key: 'customer', label: 'CUSTOMER', render: (order) => <div className="order-customer-cell"><span className="customer-cell"><span className="mini-avatar">{order.customer.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><strong>{order.customer}</strong></span><button type="button" className="measurement-toggle" aria-expanded={expandedMeasurementOrder === order.id} onClick={() => setExpandedMeasurementOrder((current) => current === order.id ? null : order.id)}><Ruler size={13} />{expandedMeasurementOrder === order.id ? 'Hide measurements' : 'Show measurements'}<ChevronDown size={13} /></button></div> },
     { key: 'garment', label: 'GARMENT', render: (order) => <strong>{order.garment}</strong> },
     { key: 'tailor', label: 'ASSIGNED TAILOR', render: (order) => order.tailor ? <span className="customer-cell"><span className="mini-avatar">{order.tailor.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><strong>{order.tailor}</strong></span> : <span className="muted-cell">Unassigned</span> },
     { key: 'dueDate', label: 'DUE DATE', render: (order) => new Date(`${order.dueDate}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) },
@@ -185,13 +248,22 @@ export default function Orders() {
   const availableMeasurements = measurements
     .filter((profile) => profile.customerId === form.customerId && getMeasurementGarmentsForOrder(form.garment).includes(profile.garment))
     .sort((left, right) => Number(right.version) - Number(left.version))
+  const measurementGarment = getMeasurementGarmentsForOrder(form.garment)
+    .find((garment) => measurementFields[garment])
+  const currentMeasurementFields = measurementFields[measurementGarment] || []
 
   return <>
     <PageHeading eyebrow="MADE TO MEASURE" title="Orders" description="From first fitting to final handoff, all in one place." action={<AddButton onClick={openCreate}>Create order</AddButton>} />
     <div className="order-summary-strip"><div><span>Open orders</span><strong>{orders.filter((order) => activeOrderStatuses.includes(order.status)).length}</strong></div><div><span>Ready for pickup</span><strong>{orders.filter((order) => order.status === 'Ready').length}</strong></div><div><span>Collected</span><strong>{money(getTotalPaid(payments))}</strong></div><div><span>Average order</span><strong>{money(orders.length ? getTotalOrderValue(orders) / orders.length : 0)}</strong></div></div>
     <TableFrame className="orders-table" title="All orders" note={`${filtered.length} orders · status updates save automatically`}>
       <div className="toolbar-inline"><SearchBox value={query} onChange={setQuery} placeholder="Search order, customer or garment..." /><Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option>All status</option><option>Active orders</option>{orderStatuses.map((status) => <option key={status}>{status}</option>)}</Select><Select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort orders"><option value="date-new">Sort by: Date (NEW)</option><option value="date-old">Sort by: Date (OLD)</option><option value="price-high">Sort by: Price (high to low)</option><option value="price-low">Sort by: Price (low to high)</option></Select></div>
-      <DataTable columns={columns} rows={sortedOrders} emptyMessage="No orders match your filters." />
+      <DataTable
+        columns={columns}
+        rows={sortedOrders}
+        emptyMessage="No orders match your filters."
+        expandedRowIds={expandedMeasurementOrder ? [expandedMeasurementOrder] : []}
+        renderExpandedRow={renderMeasurementPanel}
+      />
     </TableFrame>
     {completionOrder && <CompleteOrderModal
       order={completionOrder}
@@ -203,7 +275,7 @@ export default function Orders() {
     />}
     {modalOpen && <Modal title={editing ? 'Edit order' : 'Create an order'} description="Make a note of the details and we’ll take it from here." onClose={() => setModalOpen(false)} wide><form className="form-stack" onSubmit={save}>
       <div className="form-grid">
-        <FormField label="Customer"><Select required disabled={Boolean(editing && payments.some((payment) => payment.orderId === editing.id))} value={form.customerId} onChange={(event) => { const customerId = event.target.value; setForm({ ...form, customerId, measurementId: '' }); setCustomerFeedback(null) }}><option value="">Select a customer</option>{customers.filter((customer) => !customer.archived || (editing && editing.customerId === customer.id)).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}{!editing && <option value={newCustomerOption}>+ Add a new customer…</option>}</Select>{editing && payments.some((payment) => payment.orderId === editing.id) && <small className="field-note">Customer is locked after payments are recorded.</small>}</FormField>
+        <FormField label="Customer"><Select required disabled={Boolean(editing && payments.some((payment) => payment.orderId === editing.id))} value={form.customerId} onChange={(event) => { const customerId = event.target.value; setForm({ ...form, customerId, measurementId: '' }); setMeasurementValues({}); setCustomerFeedback(null) }}><option value="">Select a customer</option>{customers.filter((customer) => !customer.archived || (editing && editing.customerId === customer.id)).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}{!editing && <option value={newCustomerOption}>+ Add a new customer…</option>}</Select>{editing && payments.some((payment) => payment.orderId === editing.id) && <small className="field-note">Customer is locked after payments are recorded.</small>}</FormField>
         {form.customerId === newCustomerOption && <div className="inline-customer-create">
           <div className="inline-customer-heading"><strong>New customer</strong><small>Required: name and phone number.</small></div>
           <div className="form-grid">
@@ -216,8 +288,13 @@ export default function Orders() {
           {customerFeedback && <p className={`customer-feedback customer-feedback-${customerFeedback.type}`} role={customerFeedback.type === 'error' ? 'alert' : 'status'}>{customerFeedback.text}</p>}
           <Button type="button" disabled={savingCustomer} onClick={addCustomerFromOrder}>{savingCustomer ? 'Saving customer…' : 'Save & select customer'}</Button>
         </div>}
-        <FormField label="Garment type"><Select value={form.garment} onChange={(event) => setForm({ ...form, garment: event.target.value, measurementId: '' })}>{garments.map((garment) => <option key={garment}>{garment}</option>)}</Select></FormField>
+        <FormField label="Garment type"><Select value={form.garment} onChange={(event) => { setForm({ ...form, garment: event.target.value, measurementId: '' }); setMeasurementValues({}) }}>{garments.map((garment) => <option key={garment}>{garment}</option>)}</Select></FormField>
         <FormField label="Previous measurement profile"><Select value={form.measurementId || ''} onChange={(event) => setForm({ ...form, measurementId: event.target.value })}><option value="">No profile linked</option>{availableMeasurements.map((profile) => <option key={profile.id} value={profile.id}>Version {profile.version} · {profile.garment} · {profile.unit || 'in'}</option>)}</Select>{availableMeasurements.length === 0 && form.customerId && <small className="field-note">No saved profile for this customer and garment yet.</small>}</FormField>
+        {!editing && form.customerId && form.customerId !== newCustomerOption && <section className="order-inline-measurements">
+          <div className="order-inline-measurements-heading"><span className="measurement-record-icon"><Ruler size={17} /></span><div><strong>Measurements · {measurementGarment}</strong><small>Optional. Enter all garment measurements to save a new linked profile with this order.</small></div></div>
+          <FormField label="Measurement unit"><Select value={measurementUnit} onChange={(event) => setMeasurementUnit(event.target.value)}><option value="in">Inches (in)</option><option value="cm">Centimetres (cm)</option></Select></FormField>
+          <div className="measurement-fields">{currentMeasurementFields.map((field) => <FormField key={field} label={field}><div className="unit-input"><input type="number" step="0.1" min="0" value={measurementValues[field] || ''} onChange={(event) => setMeasurementValues((current) => ({ ...current, [field]: event.target.value }))} placeholder="0.0" /><span>{measurementUnit}</span></div></FormField>)}</div>
+        </section>}
         <FormField label="Assign tailor"><Select value={form.tailor} onChange={(event) => setForm({ ...form, tailor: event.target.value })}><option value="">Unassigned</option>{staff.map((member) => <option key={member.id}>{member.name}</option>)}</Select></FormField>
         <FormField label="Delivery date"><input type="date" required min={new Date().toISOString().slice(0, 10)} value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></FormField>
         <FormField label={`Order total (${settings.currency})`}><input type="number" required min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} placeholder="0" /></FormField>

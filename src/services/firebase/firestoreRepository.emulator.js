@@ -612,6 +612,30 @@ test('order creation and advance ledger writes commit atomically', async () => {
   await assert.rejects(repository.createOrder(makeOrder('invalid-start', { status: 'Assigned' })), /begin in the New status/i)
 })
 
+test('order creation saves its new garment measurement profile atomically', async () => {
+  await seedData()
+  const repository = createRepository()
+  const order = makeOrder('order-with-inline-measurements')
+  const fields = measurementFields['Formal shirt']
+  const measurement = {
+    id: 'inline-order-measurement',
+    customerId: order.customerId,
+    customer: order.customer,
+    garment: 'Formal shirt',
+    date: order.createdAt,
+    version: 1,
+    unit: 'in',
+    values: Object.fromEntries(fields.map((field, index) => [field, String(10 + index)])),
+  }
+  const created = await repository.createOrder({ ...order, measurementId: measurement.id }, undefined, measurement)
+  const keyId = `v1-${encodeURIComponent(JSON.stringify([measurement.customerId, measurement.garment, measurement.version]))}`
+
+  assert.equal(created.record.measurementId, measurement.id)
+  assert.equal(created.data.measurements.some((profile) => profile.id === measurement.id), true)
+  assert.equal((await getDoc(doc(ownerFirestore, 'businesses', businessId, 'measurements', measurement.id))).exists(), true)
+  assert.equal((await getDoc(doc(ownerFirestore, 'businesses', businessId, 'measurementVersionKeys', keyId))).exists(), true)
+})
+
 test('Firestore transitions and guarded order edits enforce workflow and payment rules', async () => {
   await seedData()
   const repository = createRepository()

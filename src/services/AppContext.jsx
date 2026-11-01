@@ -127,9 +127,9 @@ export function AppProvider({ children, repository: providedRepository }) {
     }
   }, [repository, handleRepositoryError])
 
-  const createOrder = useCallback(async (order, optionalInitialPayment) => {
+  const createOrder = useCallback(async (order, optionalInitialPayment, optionalMeasurement) => {
     try {
-      const result = await repository.createOrder(order, optionalInitialPayment)
+      const result = await repository.createOrder(order, optionalInitialPayment, optionalMeasurement)
       setData(result.data)
       setStorageState({ status: 'ready', error: '', raw: null })
       return result.record

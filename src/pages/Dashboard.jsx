@@ -124,7 +124,7 @@ export default function Dashboard() {
   const averageOrderValue = orders.length ? orders.reduce((sum, order) => sum + Number(order.amount || 0), 0) / orders.length : 0
   const orderCount = (status) => orders.filter((order) => order.status === status).length
   const activeStatuses = activeOrderStatuses
-  const statusColors = ['#c49a58', '#54728a', '#7e9c8b', '#d2b37b', '#b4c5bd', '#9c8260']
+  const statusColors = ['#3b82f6', '#ef4444', '#f4c542', '#10b981', '#8b5cf6', '#f97316']
   const demoStatusCounts = { New: 2, Confirmed: 2, Assigned: 1, Stitching: 2, 'Quality Check': 1, Ready: 0 }
   const statusCount = (status) => isDemo ? demoStatusCounts[status] || 0 : orderCount(status)
   const statusTotal = activeStatuses.reduce((sum, status) => sum + statusCount(status), 0)

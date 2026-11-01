@@ -159,7 +159,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .chart-months { display: flex; justify-content: space-between; margin-top: 3px; color: #9da2a8; font-size: 8px; }
 .status-card { padding: 19px; }
 .status-visual { display: flex; align-items: center; justify-content: center; gap: 26px; padding: 24px 4px 21px; }
-.status-ring { display: grid; width: 130px; height: 130px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: conic-gradient(#c49a58 0 17%, #54728a 17% 36%, #7e9c8b 36% 56%, #d2b37b 56% 74%, #b4c5bd 74% 89%, #f0ede6 89% 100%); }
+.status-ring { display: grid; width: 130px; height: 130px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: conic-gradient(#3b82f6 0 17%, #ef4444 17% 36%, #f4c542 36% 56%, #10b981 56% 74%, #8b5cf6 74% 89%, #f97316 89% 100%); }
 .status-ring::before { position: absolute; width: 98px; height: 98px; border-radius: 50%; content: ''; background: white; }
 .status-ring > div { z-index: 1; text-align: center; }
 .status-ring strong, .status-ring span { display: block; }

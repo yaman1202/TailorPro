@@ -1,6 +1,6 @@
 import { validateData, validateDeletion, validateEntity, validatePaymentEntity, validateSettings } from './validation.js'
 import { createBackup } from './backupService.js'
-import { canAcceptPayment, getPaidForOrder } from './orderAccounting.js'
+import { canAcceptPayment, getPaidForOrder, paymentMethods } from './orderAccounting.js'
 import { transitionOrder as transitionOrderRecord } from './orderWorkflow.js'
 import { FIRESTORE_BUSINESS_ID, getOwnerFirestore } from './firebase/firebaseFirestore.js'
 
@@ -727,6 +727,18 @@ export class FirestoreRepository {
       if (!accountingSnapshot.exists()) throw new Error(`Order accounting metadata is missing for order "${id}".`)
       const firestoreOrderData = orderSnapshot.data()
       const firestoreStatus = firestoreOrderData.status || existing.status
+      const livePaidMinorUnits = Number(accountingSnapshot.data().paidMinorUnits ?? 0)
+      const livePaymentCount = Number(accountingSnapshot.data().paymentCount ?? 0)
+      if (!Number.isSafeInteger(livePaidMinorUnits) || livePaidMinorUnits < 0
+        || !Number.isSafeInteger(livePaymentCount) || livePaymentCount < 0
+        || livePaidMinorUnits !== Number(firestoreOrderData.paidMinorUnits || 0)
+        || livePaymentCount !== Number(firestoreOrderData.paymentCount || 0)) {
+        throw malformed(`Payment accounting metadata for order "${id}" is inconsistent.`)
+      }
+      if (nextStatus === 'Completed'
+        && livePaidMinorUnits < toMinorUnits(firestoreOrderData.amount)) {
+        throw new Error('Record the full outstanding balance before completing this order.')
+      }
       const transition = transitionOrderRecord({ ...existing, status: firestoreStatus }, nextStatus)
       if (!transition.valid) throw new Error(transition.error)
       const validation = validateEntity('orders', transition.order, current, { existing })
@@ -740,6 +752,89 @@ export class FirestoreRepository {
       return {
         data: validation.data,
         record: validation.data.orders.find((order) => order.id === id),
+      }
+    })
+  }
+
+  async completeOrderWithPayment(id, method) {
+    const payment = {
+      id: makeRecordId('payments'),
+      orderId: id,
+      date: new Date().toISOString().slice(0, 10),
+      method,
+      type: 'Balance',
+    }
+    return this.runTransaction('complete order and record payment', async (transaction, firestore, sdk, baseData) => {
+      const current = this.readWorkspace(baseData)
+      this.requireInitializedWorkspace(current)
+      const existing = current.orders.find((order) => order.id === id)
+      if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
+      const orderRef = documentRef(firestore, sdk, 'orders', id)
+      const accountingRef = documentRef(firestore, sdk, 'orderAccounting', id)
+      const paymentRef = documentRef(firestore, sdk, 'payments', payment.id)
+      const [orderSnapshot, accountingSnapshot, paymentSnapshot] = await Promise.all([
+        transaction.get(orderRef),
+        transaction.get(accountingRef),
+        transaction.get(paymentRef),
+      ])
+      if (!orderSnapshot.exists()) throw new Error(`No orders record exists with ID "${id}".`)
+      if (!accountingSnapshot.exists()) throw new Error(`Order accounting metadata is missing for order "${id}".`)
+      if (paymentSnapshot.exists() || current.payments.some((entry) => entry.id === payment.id)) {
+        throw new Error(`Payment "${payment.id}" is already recorded.`)
+      }
+
+      const order = mapRecordDocument('orders', orderSnapshot)
+      const paidMinorUnits = Number(accountingSnapshot.data().paidMinorUnits ?? 0)
+      const paymentCount = Number(accountingSnapshot.data().paymentCount ?? 0)
+      if (!Number.isSafeInteger(paidMinorUnits) || paidMinorUnits < 0
+        || !Number.isSafeInteger(paymentCount) || paymentCount < 0
+        || paidMinorUnits !== Number(orderSnapshot.data().paidMinorUnits || 0)
+        || paymentCount !== Number(orderSnapshot.data().paymentCount || 0)) {
+        throw malformed(`Payment accounting metadata for order "${id}" is invalid.`)
+      }
+      const outstandingMinorUnits = toMinorUnits(order.amount) - paidMinorUnits
+      let completedPayment
+      if (outstandingMinorUnits > 0) {
+        if (!paymentMethods.includes(method)) throw new Error('Select a supported payment method.')
+        const candidate = {
+          ...payment,
+          customer: order.customer,
+          amount: outstandingMinorUnits / 100,
+        }
+        const paymentValidation = validatePaymentEntity(candidate, { order, payments: current.payments })
+        if (!paymentValidation.valid) throw new Error(paymentValidation.error)
+        completedPayment = candidate
+      }
+
+      const transition = transitionOrderRecord(order, 'Completed')
+      if (!transition.valid) throw new Error(transition.error)
+      const nextPaidMinorUnits = paidMinorUnits + (completedPayment ? toMinorUnits(completedPayment.amount) : 0)
+      if (nextPaidMinorUnits !== toMinorUnits(order.amount)) {
+        throw new Error('The order must be fully paid before it can be completed.')
+      }
+      const nextOrder = { ...transition.order, paidMinorUnits: nextPaidMinorUnits, paymentCount: paymentCount + (completedPayment ? 1 : 0) }
+      const validation = validateEntity('orders', nextOrder, current, { existing: order })
+      if (!validation.valid) throw new Error(validation.error)
+      const nextData = {
+        ...validation.data,
+        orders: validation.data.orders.map((entry) => entry.id === id ? transition.order : entry),
+        payments: completedPayment ? [completedPayment, ...current.payments] : current.payments,
+      }
+      transaction.set(accountingRef, {
+        orderId: id,
+        paidMinorUnits: nextPaidMinorUnits,
+        paymentCount: paymentCount + (completedPayment ? 1 : 0),
+        ...(completedPayment ? { lastPaymentId: completedPayment.id } : accountingSnapshot.data().lastPaymentId ? { lastPaymentId: accountingSnapshot.data().lastPaymentId } : {}),
+      })
+      const accountingOverride = new Map([[id, {
+        paidMinorUnits: nextPaidMinorUnits,
+        paymentCount: paymentCount + (completedPayment ? 1 : 0),
+      }]])
+      diffDatasetWrites(transaction, firestore, sdk, current, nextData, 1, accountingOverride)
+      return {
+        data: nextData,
+        record: nextData.orders.find((entry) => entry.id === id),
+        payment: completedPayment,
       }
     })
   }

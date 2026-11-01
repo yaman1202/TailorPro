@@ -40,7 +40,7 @@ export function Card({ children, className = '' }) {
   return <section className={`card ${className}`}>{children}</section>
 }
 
-export function Modal({ title, description, onClose, children, wide = false }) {
+export function Modal({ title, description, onClose, children, wide = false, className = '' }) {
   useEffect(() => {
     const onKey = (event) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -49,7 +49,7 @@ export function Modal({ title, description, onClose, children, wide = false }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <section className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-heading"><div><h2 id="modal-title">{title}</h2>{description && <p>{description}</p>}</div><IconButton label="Close dialog" onClick={onClose}><X size={18} /></IconButton></div>
         {children}
       </section>
@@ -69,8 +69,8 @@ export function TableToolbar({ search, setSearch, children, placeholder }) {
   return <div className="table-toolbar"><SearchBox value={search} onChange={setSearch} placeholder={placeholder} /><div className="toolbar-actions">{children}</div></div>
 }
 
-export function TableFrame({ title, note, children, action }) {
-  return <Card className="table-card"><div className="card-heading"><div><h2>{title}</h2>{note && <p>{note}</p>}</div>{action}</div>{children}</Card>
+export function TableFrame({ title, note, children, action, className = '' }) {
+  return <Card className={`table-card ${className}`}><div className="card-heading"><div><h2>{title}</h2>{note && <p>{note}</p>}</div>{action}</div>{children}</Card>
 }
 
 export function AddButton({ children = 'Add new', ...props }) {

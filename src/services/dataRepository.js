@@ -6,6 +6,7 @@ const repositoryMethods = [
   'createOrder',
   'updateOrder',
   'transitionOrder',
+  'completeOrderWithPayment',
   'recordPayment',
   'exportBackup',
   'updateSettings',
@@ -32,6 +33,7 @@ export class DataRepositoryError extends Error {
  * @property {(order: object, initialPayment?: object) => Promise<object>} createOrder
  * @property {(id: string, updates: object) => Promise<object>} updateOrder
  * @property {(id: string, nextStatus: string) => Promise<object>} transitionOrder
+ * @property {(id: string, method: string) => Promise<object>} completeOrderWithPayment
  * @property {(payment: object) => Promise<object>} recordPayment
  * @property {() => Promise<object>} exportBackup
  * @property {(updates: object) => Promise<object>} updateSettings

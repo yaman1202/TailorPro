@@ -44,15 +44,11 @@ test('new orders always start at New, whether or not a tailor is selected', () =
   assert.equal(getOrderBalance(order, [payment({ orderId: order.id, amount: order.advance })]), 75)
 })
 
-test('transitions allow only the workflow path and keep terminal statuses closed', () => {
+test('transitions allow direct status selection with tailor assignment and keep terminal statuses closed', () => {
   let order = createOrderRecord({ tailor: 'Asha' }, 'order-1', '2026-10-30')
-  assert.equal(transitionOrder(order, 'Stitching').valid, false)
+  assert.equal(transitionOrder(order, 'Stitching').valid, true)
   assert.equal(transitionOrder(order, 'Cancelled').valid, true)
-  order = transitionOrder(order, 'Confirmed').order
-  assert.equal(transitionOrder(order, 'Assigned').valid, true)
-  order = transitionOrder(order, 'Assigned').order
   assert.equal(transitionOrder({ ...order, tailor: '' }, 'Stitching').valid, false)
-  order = transitionOrder(order, 'Stitching').order
   order = transitionOrder(order, 'Quality Check').order
   assert.equal(transitionOrder(order, 'Stitching').valid, true)
   order = transitionOrder(order, 'Ready').order

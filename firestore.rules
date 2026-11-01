@@ -152,15 +152,20 @@ service cloud.firestore {
             && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)));
     }
 
+    function statusRequiresTailor(status) {
+      return status in ['Assigned', 'Stitching', 'Quality Check', 'Ready', 'Completed'];
+    }
+
     function allowedStatusTransition(before, after) {
-      return before == after
-        || (before != 'Completed' && before != 'Cancelled' && after == 'Cancelled')
-        || (before == 'New' && after == 'Confirmed')
-        || (before == 'Confirmed' && after == 'Assigned')
-        || (before == 'Assigned' && after == 'Stitching')
-        || (before == 'Stitching' && after == 'Quality Check')
-        || (before == 'Quality Check' && (after == 'Stitching' || after == 'Ready'))
-        || (before == 'Ready' && after == 'Completed');
+      return before == after.status
+        || (before != 'Completed'
+          && before != 'Cancelled'
+          && after.status in [
+            'New', 'Confirmed', 'Assigned', 'Stitching', 'Quality Check',
+            'Ready', 'Completed', 'Cancelled'
+          ]
+          && (!statusRequiresTailor(after.status) || validText(after.tailor))
+          && (after.status != 'Completed' || after.paidMinorUnits == toMinor(after.amount)));
     }
 
     function accountingPath(businessId, orderId) {
@@ -324,7 +329,7 @@ service cloud.firestore {
           && advancesWorkspaceRevision(businessId)
           && validOrder(request.resource.data, documentId, businessId)
           && request.resource.data.id == resource.data.id
-          && allowedStatusTransition(resource.data.status, request.resource.data.status)
+          && allowedStatusTransition(resource.data.status, request.resource.data)
           && (resource.data.paymentCount == 0
             || request.resource.data.customerId == resource.data.customerId)
           && exists(accountingPath(businessId, documentId))

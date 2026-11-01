@@ -618,7 +618,8 @@ test('Firestore transitions and guarded order edits enforce workflow and payment
   const order = makeOrder('workflow-order', { tailor: 'Dev Patel' })
   await repository.createOrder(order)
 
-  await assert.rejects(repository.transitionOrder(order.id, 'Stitching'), /not allowed/i)
+  const stitching = await repository.transitionOrder(order.id, 'Stitching')
+  assert.equal(stitching.record.status, 'Stitching')
   const confirmed = await repository.transitionOrder(order.id, 'Confirmed')
   assert.equal(confirmed.record.status, 'Confirmed')
   const assigned = await repository.transitionOrder(order.id, 'Assigned')
@@ -626,8 +627,12 @@ test('Firestore transitions and guarded order edits enforce workflow and payment
   await repository.transitionOrder(order.id, 'Stitching')
   await repository.transitionOrder(order.id, 'Quality Check')
   await repository.transitionOrder(order.id, 'Ready')
-  const completed = await repository.transitionOrder(order.id, 'Completed')
+  await assert.rejects(repository.transitionOrder(order.id, 'Completed'), /full outstanding balance/i)
+  const completed = await repository.completeOrderWithPayment(order.id, 'Cash')
   assert.equal(completed.record.status, 'Completed')
+  assert.equal(completed.payment.amount, order.amount)
+  assert.equal(completed.payment.type, 'Balance')
+  assert.equal(completed.data.payments.filter((payment) => payment.orderId === order.id).length, 1)
   await assert.rejects(repository.transitionOrder(order.id, 'Cancelled'), /not allowed/i)
 
   const paymentOrder = makeOrder('guarded-edit-order', { amount: 100 })
@@ -636,6 +641,24 @@ test('Firestore transitions and guarded order edits enforce workflow and payment
   await assert.rejects(repository.updateOrder(paymentOrder.id, { amount: 59 }), /cannot be lower/i)
   await assert.rejects(repository.deleteRecord('orders', paymentOrder.id), /payment history/i)
   await assert.rejects(repository.deleteRecord('payments', 'guarded-edit-payment'), /cannot be deleted/i)
+})
+
+test('Firestore completion does not duplicate payment for an already-paid order', async () => {
+  await seedData()
+  const repository = createRepository()
+  const order = makeOrder('already-paid-completion', {
+    amount: 500,
+    advance: 500,
+    tailor: 'Dev Patel',
+  })
+  await repository.createOrder(order, makePayment('already-paid-advance', order, 500, { type: 'Advance' }))
+  const ready = await repository.transitionOrder(order.id, 'Ready')
+  assert.equal(ready.record.status, 'Ready')
+
+  const completed = await repository.completeOrderWithPayment(order.id, '')
+  assert.equal(completed.record.status, 'Completed')
+  assert.equal(completed.payment, undefined)
+  assert.equal(completed.data.payments.filter((payment) => payment.orderId === order.id).length, 1)
 })
 
 test('concurrent payments cannot exceed an order balance and duplicate IDs are rejected', async () => {

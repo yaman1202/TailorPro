@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Eye, Pencil, Trash2 } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { formatCurrency } from '../services/formatters.js'
-import { createOrderId, getTotalOrderValue, getTotalPaid, normalizeMoney } from '../services/orderAccounting.js'
+import { createOrderId, getOrderBalance, getTotalOrderValue, getTotalPaid, normalizeMoney } from '../services/orderAccounting.js'
 import { activeOrderStatuses, createOrderRecord, getAllowedOrderStatuses, orderStatuses } from '../services/orderWorkflow.js'
 import { AddButton, Button, FormField, Modal, PageHeading, SearchBox, Select, TableFrame } from '../components/UI.jsx'
+import CompleteOrderModal from '../components/CompleteOrderModal.jsx'
 import DataTable from '../components/DataTable.jsx'
 import { getMeasurementGarmentsForOrder } from '../data/measurementTemplates.js'
 import { validateDeletion, validateEntity } from '../services/validation.js'
@@ -15,10 +16,19 @@ const blank = { customerId: '', garment: 'Formal shirt', tailor: '', dueDate: ''
 const newCustomerOption = '__new_customer__'
 
 export default function Orders() {
-  const { orders, customers, measurements, staff, payments, settings, createCustomer, createOrder, updateOrder, transitionOrder, deleteRecord } = useAppData()
+  const { orders, customers, measurements, staff, payments, settings, createCustomer, createOrder, updateOrder, transitionOrder, completeOrderWithPayment, deleteRecord } = useAppData()
   const money = (value) => formatCurrency(value, settings.currency)
+  const [searchParams] = useSearchParams()
+  const requestedStatus = searchParams.get('status')
+  const initialStatus = searchParams.get('filter') === 'active'
+    ? 'Active orders'
+    : orderStatuses.includes(requestedStatus) ? requestedStatus : 'All status'
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('All status')
+  const [statusFilter, setStatusFilter] = useState(initialStatus)
+  const [sortBy, setSortBy] = useState('date-new')
+  const [pendingStatuses, setPendingStatuses] = useState({})
+  const [completionOrder, setCompletionOrder] = useState(null)
+  const [completingOrder, setCompletingOrder] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(blank)
@@ -26,7 +36,18 @@ export default function Orders() {
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [customerFeedback, setCustomerFeedback] = useState(null)
   const [savingOrder, setSavingOrder] = useState(false)
-  const filtered = useMemo(() => orders.filter((order) => `${order.id} ${order.customer} ${order.garment}`.toLowerCase().includes(query.toLowerCase()) && (statusFilter === 'All status' || order.status === statusFilter)), [orders, query, statusFilter])
+  const filtered = useMemo(() => orders.filter((order) => {
+    const matchesSearch = `${order.id} ${order.customer} ${order.garment}`.toLowerCase().includes(query.toLowerCase())
+    const matchesStatus = statusFilter === 'All status'
+      || (statusFilter === 'Active orders' ? activeOrderStatuses.includes(order.status) : order.status === statusFilter)
+    return matchesSearch && matchesStatus
+  }), [orders, query, statusFilter])
+  const sortedOrders = useMemo(() => [...filtered].sort((left, right) => {
+    if (sortBy === 'date-old') return (left.createdAt || '').localeCompare(right.createdAt || '')
+    if (sortBy === 'price-high') return Number(right.amount || 0) - Number(left.amount || 0)
+    if (sortBy === 'price-low') return Number(left.amount || 0) - Number(right.amount || 0)
+    return (right.createdAt || '').localeCompare(left.createdAt || '')
+  }), [filtered, sortBy])
   const openCreate = () => { setEditing(null); setForm({ ...blank, measurementId: '' }); setNewCustomer({ name: '', phone: '', email: '', address: '', city: '' }); setCustomerFeedback(null); setModalOpen(true) }
   const openEdit = (order) => { setEditing(order); setForm({ customerId: order.customerId, garment: order.garment, measurementId: order.measurementId || '', tailor: order.tailor || '', dueDate: order.dueDate, amount: order.amount, advance: order.advance }); setCustomerFeedback(null); setModalOpen(true) }
   const addCustomerFromOrder = async () => {
@@ -55,8 +76,29 @@ export default function Orders() {
     }
   }
   const changeStatus = async (order, nextStatus) => {
+    if (pendingStatuses[order.id]) return
+    if (nextStatus === 'Completed') {
+      setCompletionOrder(order)
+      return
+    }
     if (nextStatus === 'Cancelled' && !window.confirm(`Cancel order ${order.id}? Its payment history will remain in the ledger.`)) return
-    await transitionOrder(order.id, nextStatus)
+    setPendingStatuses((current) => ({ ...current, [order.id]: nextStatus }))
+    const updatedOrder = await transitionOrder(order.id, nextStatus)
+    setPendingStatuses((current) => {
+      return Object.fromEntries(Object.entries(current).filter(([id]) => id !== order.id))
+    })
+    if (!updatedOrder) return
+  }
+  const confirmCompletion = async (method) => {
+    if (!completionOrder || completingOrder) return
+    setCompletingOrder(true)
+    const result = await completeOrderWithPayment(completionOrder.id, method)
+    setCompletingOrder(false)
+    if (result.record) {
+      setCompletionOrder(null)
+      return ''
+    }
+    return result.error
   }
   const save = async (event) => {
     event.preventDefault()
@@ -133,9 +175,10 @@ export default function Orders() {
   const columns = [
     { key: 'id', label: 'ORDER', render: (order) => <Link className="order-link" to={`/orders/${order.id}`}>{order.id}</Link> },
     { key: 'customer', label: 'CUSTOMER', render: (order) => <span className="customer-cell"><span className="mini-avatar">{order.customer.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><strong>{order.customer}</strong></span> },
-    { key: 'garment', label: 'GARMENT', render: (order) => <span><strong>{order.garment}</strong><small className="table-subtext">{order.tailor || 'Awaiting tailor'}</small></span> },
+    { key: 'garment', label: 'GARMENT', render: (order) => <strong>{order.garment}</strong> },
+    { key: 'tailor', label: 'ASSIGNED TAILOR', render: (order) => order.tailor ? <span className="customer-cell"><span className="mini-avatar">{order.tailor.split(' ').map((word) => word[0]).slice(0, 2).join('')}</span><strong>{order.tailor}</strong></span> : <span className="muted-cell">Unassigned</span> },
     { key: 'dueDate', label: 'DUE DATE', render: (order) => new Date(`${order.dueDate}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) },
-    { key: 'status', label: 'STATUS', render: (order) => { const allowedStatuses = getAllowedOrderStatuses(order); return <Select className="status-select" value={order.status} onChange={(event) => changeStatus(order, event.target.value)} aria-label={`Set status for ${order.id}`}>{orderStatuses.map((status) => <option key={status} disabled={!allowedStatuses.includes(status)}>{status}</option>)}</Select> } },
+    { key: 'status', label: 'STATUS', render: (order) => { const allowedStatuses = getAllowedOrderStatuses(order); const pendingStatus = pendingStatuses[order.id]; return <Select className={`status-select ${pendingStatus ? 'status-select-pending' : ''}`} value={pendingStatus || order.status} disabled={Boolean(pendingStatus)} onChange={(event) => changeStatus(order, event.target.value)} aria-label={`Set status for ${order.id}`} aria-busy={Boolean(pendingStatus)}>{orderStatuses.map((status) => <option key={status} disabled={!allowedStatuses.includes(status)}>{status}</option>)}</Select> } },
     { key: 'amount', label: 'TOTAL', render: (order) => <span className="amount-cell">{money(order.amount)}</span> },
     { key: 'actions', label: '', render: (order) => <span className="row-actions"><Link title="View order" aria-label="View order" to={`/orders/${order.id}`}><Eye size={15} /></Link><button title="Edit order" aria-label="Edit order" onClick={() => openEdit(order)}><Pencil size={15} /></button><button title="Delete order" aria-label="Delete order" onClick={() => remove(order)}><Trash2 size={15} /></button></span> },
   ]
@@ -146,10 +189,18 @@ export default function Orders() {
   return <>
     <PageHeading eyebrow="MADE TO MEASURE" title="Orders" description="From first fitting to final handoff, all in one place." action={<AddButton onClick={openCreate}>Create order</AddButton>} />
     <div className="order-summary-strip"><div><span>Open orders</span><strong>{orders.filter((order) => activeOrderStatuses.includes(order.status)).length}</strong></div><div><span>Ready for pickup</span><strong>{orders.filter((order) => order.status === 'Ready').length}</strong></div><div><span>Collected</span><strong>{money(getTotalPaid(payments))}</strong></div><div><span>Average order</span><strong>{money(orders.length ? getTotalOrderValue(orders) / orders.length : 0)}</strong></div></div>
-    <TableFrame title="All orders" note={`${filtered.length} orders · status updates save automatically`}>
-      <div className="toolbar-inline"><SearchBox value={query} onChange={setQuery} placeholder="Search order, customer or garment..." /><Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All status</option>{orderStatuses.map((status) => <option key={status}>{status}</option>)}</Select></div>
-      <DataTable columns={columns} rows={filtered} emptyMessage="No orders match your filters." />
+    <TableFrame className="orders-table" title="All orders" note={`${filtered.length} orders · status updates save automatically`}>
+      <div className="toolbar-inline"><SearchBox value={query} onChange={setQuery} placeholder="Search order, customer or garment..." /><Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option>All status</option><option>Active orders</option>{orderStatuses.map((status) => <option key={status}>{status}</option>)}</Select><Select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort orders"><option value="date-new">Sort by: Date (NEW)</option><option value="date-old">Sort by: Date (OLD)</option><option value="price-high">Sort by: Price (high to low)</option><option value="price-low">Sort by: Price (low to high)</option></Select></div>
+      <DataTable columns={columns} rows={sortedOrders} emptyMessage="No orders match your filters." />
     </TableFrame>
+    {completionOrder && <CompleteOrderModal
+      order={completionOrder}
+      balance={getOrderBalance(completionOrder, payments)}
+      money={money}
+      busy={completingOrder}
+      onClose={() => setCompletionOrder(null)}
+      onConfirm={confirmCompletion}
+    />}
     {modalOpen && <Modal title={editing ? 'Edit order' : 'Create an order'} description="Make a note of the details and we’ll take it from here." onClose={() => setModalOpen(false)} wide><form className="form-stack" onSubmit={save}>
       <div className="form-grid">
         <FormField label="Customer"><Select required disabled={Boolean(editing && payments.some((payment) => payment.orderId === editing.id))} value={form.customerId} onChange={(event) => { const customerId = event.target.value; setForm({ ...form, customerId, measurementId: '' }); setCustomerFeedback(null) }}><option value="">Select a customer</option>{customers.filter((customer) => !customer.archived || (editing && editing.customerId === customer.id)).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}{!editing && <option value={newCustomerOption}>+ Add a new customer…</option>}</Select>{editing && payments.some((payment) => payment.orderId === editing.id) && <small className="field-note">Customer is locked after payments are recorded.</small>}</FormField>

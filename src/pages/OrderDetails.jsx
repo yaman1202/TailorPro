@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, Check, CircleDollarSign, Scissors, UserRound } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
@@ -5,11 +6,14 @@ import { formatCurrency } from '../services/formatters.js'
 import { getOrderBalance, getPaidForOrder } from '../services/orderAccounting.js'
 import { getAllowedOrderStatuses, orderStatuses } from '../services/orderWorkflow.js'
 import { Badge, Button, Card, PageHeading, Select } from '../components/UI.jsx'
+import CompleteOrderModal from '../components/CompleteOrderModal.jsx'
 
 export default function OrderDetails() {
   const { orderId } = useParams()
   const navigate = useNavigate()
-  const { orders, payments, transitionOrder, measurements, settings } = useAppData()
+  const { orders, payments, transitionOrder, completeOrderWithPayment, measurements, settings } = useAppData()
+  const [completionOpen, setCompletionOpen] = useState(false)
+  const [completingOrder, setCompletingOrder] = useState(false)
   const money = (value) => formatCurrency(value, settings.currency)
   const order = orders.find((item) => item.id === orderId)
   if (!order) return <><PageHeading eyebrow="ORDER NOT FOUND" title="We couldn’t find that order." description="It may have been removed or the link may be incorrect." action={<Button variant="secondary" onClick={() => navigate('/orders')}>Back to orders</Button>} /></>
@@ -19,8 +23,23 @@ export default function OrderDetails() {
   const relatedMeasurements = measurements.filter((item) => item.customerId === order.customerId)
   const linkedMeasurement = measurements.find((item) => item.id === order.measurementId)
   const changeStatus = async (nextStatus) => {
+    if (nextStatus === 'Completed') {
+      setCompletionOpen(true)
+      return
+    }
     if (nextStatus === 'Cancelled' && !window.confirm(`Cancel order ${order.id}? Its payment history will remain in the ledger.`)) return
     await transitionOrder(order.id, nextStatus)
+  }
+  const confirmCompletion = async (method) => {
+    if (completingOrder) return
+    setCompletingOrder(true)
+    const result = await completeOrderWithPayment(order.id, method)
+    setCompletingOrder(false)
+    if (result.record) {
+      setCompletionOpen(false)
+      return ''
+    }
+    return result.error
   }
   return <>
     <Link className="back-link" to="/orders"><ArrowLeft size={15} />All orders</Link>
@@ -34,5 +53,13 @@ export default function OrderDetails() {
         {linkedMeasurement ? <section className="order-measurement"><div className="order-measurement-heading"><strong>{linkedMeasurement.garment} · Version {linkedMeasurement.version}</strong><span>{linkedMeasurement.unit || 'in'}</span></div><div className="order-measurement-values">{Object.entries(linkedMeasurement.values || {}).map(([field, value]) => <span key={field}>{field}<strong>{value} {linkedMeasurement.unit || 'in'}</strong></span>)}</div></section> : <p className="form-hint">No measurement profile is linked to this order. Existing customer history is unchanged.</p>}
         <Link className="text-link detail-link" to="/measurements">View measurements</Link></Card>
     </aside></div>
+    {completionOpen && <CompleteOrderModal
+      order={order}
+      balance={remaining}
+      money={money}
+      busy={completingOrder}
+      onClose={() => setCompletionOpen(false)}
+      onConfirm={confirmCompletion}
+    />}
   </>
 }

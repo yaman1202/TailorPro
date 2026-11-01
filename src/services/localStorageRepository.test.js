@@ -38,6 +38,7 @@ test('repository contract exposes asynchronous data operations', async () => {
     'createOrder',
     'updateOrder',
     'transitionOrder',
+    'completeOrderWithPayment',
     'recordPayment',
     'exportBackup',
     'updateSettings',
@@ -47,6 +48,69 @@ test('repository contract exposes asynchronous data operations', async () => {
     assert.equal(typeof repository[method], 'function')
   }
   assert.equal(typeof repository.load().then, 'function')
+})
+
+test('completion records the outstanding balance before completing and never duplicates payment', async () => {
+  installStorage()
+  const repository = createLocalStorageRepository()
+  await repository.load()
+  const order = {
+    id: 'completion-payment-order',
+    customerId: 'c1',
+    customer: 'Aarav Mehta',
+    garment: 'Formal shirt',
+    tailor: 'Dev Patel',
+    dueDate: '2026-11-15',
+    amount: 1000,
+    advance: 0,
+    status: 'New',
+    createdAt: '2026-10-30',
+  }
+  await repository.createOrder(order)
+  await repository.transitionOrder(order.id, 'Ready')
+  await assert.rejects(repository.transitionOrder(order.id, 'Completed'), /full outstanding balance/i)
+
+  const completed = await repository.completeOrderWithPayment(order.id, 'UPI')
+  assert.equal(completed.record.status, 'Completed')
+  assert.equal(completed.payment.amount, 1000)
+  assert.equal(completed.payment.type, 'Balance')
+  assert.equal(completed.payment.method, 'UPI')
+  assert.equal(completed.data.payments.filter((payment) => payment.orderId === order.id).length, 1)
+  assert.equal(JSON.parse(window.localStorage.getItem(STORAGE_KEY)).payments.some((payment) => payment.id === completed.payment.id), true)
+  await assert.rejects(repository.completeOrderWithPayment(order.id, 'UPI'), /not allowed/i)
+})
+
+test('already-paid orders complete without recording a duplicate payment', async () => {
+  installStorage()
+  const repository = createLocalStorageRepository()
+  await repository.load()
+  const order = {
+    id: 'completion-paid-order',
+    customerId: 'c1',
+    customer: 'Aarav Mehta',
+    garment: 'Formal shirt',
+    tailor: 'Dev Patel',
+    dueDate: '2026-11-15',
+    amount: 500,
+    advance: 500,
+    status: 'New',
+    createdAt: '2026-10-30',
+  }
+  await repository.createOrder(order, {
+    id: 'completion-paid-advance',
+    orderId: order.id,
+    customer: order.customer,
+    date: order.createdAt,
+    amount: 500,
+    method: 'Cash',
+    type: 'Advance',
+  })
+  await repository.transitionOrder(order.id, 'Ready')
+
+  const completed = await repository.completeOrderWithPayment(order.id, '')
+  assert.equal(completed.record.status, 'Completed')
+  assert.equal(completed.payment, undefined)
+  assert.equal(completed.data.payments.filter((payment) => payment.orderId === order.id).length, 1)
 })
 
 test('repository supports successful create, update, delete, and settings operations', async () => {
@@ -204,7 +268,10 @@ test('domain operations create orders and advances atomically and guard statuses
 
   const confirmed = await repository.transitionOrder(order.id, 'Confirmed')
   assert.equal(confirmed.record.status, 'Confirmed')
-  await assert.rejects(repository.transitionOrder(order.id, 'Ready'), /not allowed/i)
+  await assert.rejects(repository.transitionOrder(order.id, 'Ready'), /requires a tailor/i)
+  await repository.updateOrder(order.id, { tailor: 'Dev Patel' })
+  const ready = await repository.transitionOrder(order.id, 'Ready')
+  assert.equal(ready.record.status, 'Ready')
   const cancelled = await repository.transitionOrder(order.id, 'Cancelled')
   assert.equal(cancelled.record.status, 'Cancelled')
   await assert.rejects(repository.recordPayment({

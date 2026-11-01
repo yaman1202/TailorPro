@@ -2,17 +2,6 @@ export const orderStatuses = ['New', 'Confirmed', 'Assigned', 'Stitching', 'Qual
 export const terminalOrderStatuses = ['Completed', 'Cancelled']
 export const activeOrderStatuses = orderStatuses.filter((status) => !terminalOrderStatuses.includes(status))
 
-const nextStatuses = {
-  New: ['Confirmed'],
-  Confirmed: ['Assigned'],
-  Assigned: ['Stitching'],
-  Stitching: ['Quality Check'],
-  'Quality Check': ['Stitching', 'Ready'],
-  Ready: ['Completed'],
-  Completed: [],
-  Cancelled: [],
-}
-
 export function requiresTailorForOrder(order) {
   return ['Assigned', 'Stitching', 'Quality Check', 'Ready', 'Completed'].includes(order?.status)
 }
@@ -21,9 +10,7 @@ export function canTransitionOrder(order, nextStatus) {
   if (!order || !orderStatuses.includes(order.status) || !orderStatuses.includes(nextStatus) || order.status === nextStatus) return false
   if (terminalOrderStatuses.includes(order.status)) return false
   if (nextStatus === 'Cancelled') return true
-  if (!nextStatuses[order.status]?.includes(nextStatus)) return false
-  if (requiresTailorForOrder(order) && !order.tailor?.trim()) return false
-  return nextStatus !== 'Assigned' || Boolean(order.tailor?.trim())
+  return !requiresTailorForOrder({ status: nextStatus }) || Boolean(order.tailor?.trim())
 }
 
 export function createOrderRecord(values, id, createdAt = new Date().toISOString().slice(0, 10)) {
@@ -32,7 +19,12 @@ export function createOrderRecord(values, id, createdAt = new Date().toISOString
 
 export function transitionOrder(order, nextStatus) {
   if (!canTransitionOrder(order, nextStatus)) {
-    return { valid: false, error: `That status change is not allowed from "${order.status}".` }
+    if (order && orderStatuses.includes(nextStatus)
+      && requiresTailorForOrder({ status: nextStatus })
+      && !order.tailor?.trim()) {
+      return { valid: false, error: `This status requires a tailor assignment before the order can move to "${nextStatus}".` }
+    }
+    return { valid: false, error: `That status change is not allowed from "${order?.status || 'unknown'}".` }
   }
   return { valid: true, order: { ...order, status: nextStatus } }
 }

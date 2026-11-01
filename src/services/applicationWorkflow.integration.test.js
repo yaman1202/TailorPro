@@ -129,7 +129,7 @@ test('TailorPro business workflow integration', async (t) => {
     )
   })
 
-  await t.test('orders start at New, follow valid transitions, and retain valid relationships', async () => {
+  await t.test('orders start at New, allow direct status selection, and retain valid relationships', async () => {
     installStorage()
     const repository = await loadRepository()
     const assignedOrder = makeOrder({ id: 'integration-order-tailor', tailor: 'Dev Patel' })
@@ -137,11 +137,11 @@ test('TailorPro business workflow integration', async (t) => {
     await repository.addRecord('orders', assignedOrder)
     await repository.addRecord('orders', unassignedOrder)
 
-    const invalid = await transitionAndSave(repository, assignedOrder, 'Stitching')
-    assert.equal(invalid.valid, false)
-    assert.equal((await repository.load()).data.orders.find((item) => item.id === assignedOrder.id).status, 'New')
+    const directStatus = await transitionAndSave(repository, assignedOrder, 'Stitching')
+    assert.equal(directStatus.valid, true)
+    assert.equal((await repository.load()).data.orders.find((item) => item.id === assignedOrder.id).status, 'Stitching')
 
-    const confirmed = await transitionAndSave(repository, assignedOrder, 'Confirmed')
+    const confirmed = await transitionAndSave(repository, directStatus.order, 'Confirmed')
     assert.equal(confirmed.valid, true)
     const assigned = await transitionAndSave(repository, confirmed.order, 'Assigned')
     assert.equal(assigned.valid, true)

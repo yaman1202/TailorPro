@@ -473,17 +473,56 @@ test('payments on cancelled orders and overpayments are rejected', async () => {
   await assertFails(cancelledPaymentBatch.commit())
 })
 
-test('invalid order status jumps and non-sequential revision jumps are rejected', async () => {
+test('direct order status changes require a tailor for production and terminal stages', async () => {
   const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
   const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2404')
 
-  const invalidTransition = writeBatch(ownerDb)
-  invalidTransition.update(orderRef, { status: 'Completed' })
-  invalidTransition.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
-  await assertFails(invalidTransition.commit())
+  const missingTailor = writeBatch(ownerDb)
+  missingTailor.update(orderRef, { status: 'Completed', tailor: '' })
+  missingTailor.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertFails(missingTailor.commit())
 
+  const directCompletion = writeBatch(ownerDb)
+  directCompletion.update(orderRef, { status: 'Completed', tailor: 'Dev Patel' })
+  directCompletion.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertFails(directCompletion.commit())
+
+  const paymentId = 'completion-final-balance'
+  const fullBalance = writeBatch(ownerDb)
+  fullBalance.set(doc(ownerDb, 'businesses', businessId, 'payments', paymentId), {
+    id: paymentId,
+    orderId: 'TP-2404',
+    customer: 'Rohan Desai',
+    date: '2026-10-31',
+    amount: 6800,
+    method: 'Cash',
+    type: 'Balance',
+  })
+  fullBalance.update(doc(ownerDb, 'businesses', businessId, 'orderAccounting', 'TP-2404'), {
+    paidMinorUnits: 680000,
+    paymentCount: 1,
+    lastPaymentId: paymentId,
+  })
+  fullBalance.update(orderRef, {
+    status: 'Completed',
+    tailor: 'Dev Patel',
+    paidMinorUnits: 680000,
+    paymentCount: 1,
+  })
+  fullBalance.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 2 })
+  await assertSucceeds(fullBalance.commit())
+
+  const terminalChange = writeBatch(ownerDb)
+  terminalChange.update(orderRef, { status: 'Stitching' })
+  terminalChange.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 3 })
+  await assertFails(terminalChange.commit())
+})
+
+test('non-sequential workspace revision jumps are rejected for order status changes', async () => {
+  const ownerDb = testEnvironment.authenticatedContext(ownerUid).firestore()
+  const orderRef = doc(ownerDb, 'businesses', businessId, 'orders', 'TP-2408')
   const invalidRevisionJump = writeBatch(ownerDb)
-  invalidRevisionJump.update(orderRef, { status: 'Assigned' })
+  invalidRevisionJump.update(orderRef, { status: 'Completed' })
   invalidRevisionJump.update(doc(ownerDb, 'businesses', businessId, 'workspaceMetadata', 'current'), { revision: 5 })
   await assertFails(invalidRevisionJump.commit())
 })

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Archive, ArchiveRestore, Mail, MapPin, Pencil, Phone } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { AddButton, Button, FormField, Modal, PageHeading, SearchBox, Select, TableFrame } from '../components/UI.jsx'
@@ -9,6 +10,7 @@ const blank = { name: '', phone: '', email: '', address: '', city: '' }
 
 export default function Customers() {
   const { customers, orders, measurements, payments, staff, inventory, createCustomer, updateRecord } = useAppData()
+  const [searchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
   const [editing, setEditing] = useState(null)
@@ -16,9 +18,14 @@ export default function Customers() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
-  const [archiveFilter, setArchiveFilter] = useState('Active')
+  const [archiveFilter, setArchiveFilter] = useState(searchParams.get('filter') === 'new' ? 'New this week' : 'Active')
 
   const filtered = useMemo(() => {
+    const today = new Date()
+    today.setHours(23, 59, 59, 999)
+    const weekStart = new Date(today)
+    weekStart.setHours(0, 0, 0, 0)
+    weekStart.setDate(weekStart.getDate() - 6)
     return customers.filter((customer) => {
       const matchesSearch = `${customer.name} ${customer.phone} ${customer.email || ''} ${customer.city || ''}`
         .toLowerCase()
@@ -26,6 +33,10 @@ export default function Customers() {
       if (!matchesSearch) return false
       if (archiveFilter === 'Active') return !customer.archived
       if (archiveFilter === 'Archived') return Boolean(customer.archived)
+      if (archiveFilter === 'New this week') {
+        const joined = customer.joined ? new Date(`${customer.joined}T00:00:00`) : null
+        return !customer.archived && joined && joined >= weekStart && joined <= today
+      }
       return true
     })
   }, [customers, query, archiveFilter])
@@ -142,6 +153,7 @@ export default function Customers() {
         <SearchBox value={query} onChange={setQuery} placeholder="Search name, phone or email..." />
         <Select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value)}>
           <option value="Active">Active customers</option>
+          <option value="New this week">New this week</option>
           <option value="Archived">Archived customers</option>
           <option value="All">All customers</option>
         </Select>

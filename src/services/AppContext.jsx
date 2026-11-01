@@ -163,6 +163,18 @@ export function AppProvider({ children, repository: providedRepository }) {
     }
   }, [repository, handleRepositoryError])
 
+  const completeOrderWithPayment = useCallback(async (id, method) => {
+    try {
+      const result = await repository.completeOrderWithPayment(id, method)
+      setData(result.data)
+      setStorageState({ status: 'ready', error: '', raw: null })
+      return { record: result.record, error: '' }
+    } catch (error) {
+      handleRepositoryError(error, 'complete order and record payment')
+      return { record: null, error: error.message }
+    }
+  }, [repository, handleRepositoryError])
+
   const recordPayment = useCallback(async (payment) => {
     try {
       const result = await repository.recordPayment(payment)
@@ -230,12 +242,13 @@ export function AppProvider({ children, repository: providedRepository }) {
     createOrder,
     updateOrder,
     transitionOrder,
+    completeOrderWithPayment,
     recordPayment,
     exportBackup,
     updateSettings,
     replaceData,
     retryStorageSave,
-  }), [data, storageState, addRecord, createCustomer, archiveCustomer, updateRecord, deleteRecord, createOrder, updateOrder, transitionOrder, recordPayment, exportBackup, updateSettings, replaceData, retryStorageSave])
+  }), [data, storageState, addRecord, createCustomer, archiveCustomer, updateRecord, deleteRecord, createOrder, updateOrder, transitionOrder, completeOrderWithPayment, recordPayment, exportBackup, updateSettings, replaceData, retryStorageSave])
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>
 }

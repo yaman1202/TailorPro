@@ -24,23 +24,19 @@ test('rejects malformed, duplicate, and financially invalid backup records', () 
   assert.equal(validateBackup({ format: 'other', version: 1, data }).valid, false)
 })
 
-test('allows only the next order stage and keeps terminal orders closed', () => {
+test('allows direct order status selection when assignment requirements are met', () => {
   const order = { id: 'TP-1', status: 'New', tailor: '' }
   assert.equal(canTransitionOrder(order, 'Confirmed'), true)
   assert.equal(canTransitionOrder(order, 'Stitching'), false)
   assert.equal(canTransitionOrder(order, 'Assigned'), false)
   assert.ok(getAllowedOrderStatuses(order).includes('Cancelled'))
 
-  order.status = 'Confirmed'
   order.tailor = 'Dev Patel'
-  assert.equal(canTransitionOrder(order, 'Assigned'), true)
-  order.status = 'Assigned'
-  order.tailor = ''
-  assert.equal(canTransitionOrder(order, 'Stitching'), false)
-  order.tailor = 'Dev Patel'
-  order.status = 'Quality Check'
   assert.equal(canTransitionOrder(order, 'Stitching'), true)
+  assert.equal(canTransitionOrder(order, 'Assigned'), true)
   assert.equal(canTransitionOrder(order, 'Ready'), true)
+  order.status = 'Ready'
+  assert.equal(canTransitionOrder(order, 'Completed'), true)
   order.status = 'Completed'
   assert.equal(canTransitionOrder(order, 'Cancelled'), false)
 })

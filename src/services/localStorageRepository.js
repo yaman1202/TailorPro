@@ -3,6 +3,7 @@ import { DataRepositoryError } from './dataRepository.js'
 import { validateData, validateEntity, validateSettings, validateDeletion } from './validation.js'
 import { transitionOrder as transitionOrderRecord } from './orderWorkflow.js'
 import { createBackup } from './backupService.js'
+import { getOrderBalance, paymentMethods } from './orderAccounting.js'
 
 const collections = ['customers', 'measurements', 'orders', 'payments', 'staff', 'inventory']
 
@@ -152,6 +153,9 @@ export class LocalStorageRepository {
     return this.mutate('transition order', (current) => {
       const existing = current.orders.find((item) => item.id === id)
       if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
+      if (nextStatus === 'Completed' && getOrderBalance(existing, current.payments) > 0) {
+        throw new Error('Record the full outstanding balance before completing this order.')
+      }
       const transition = transitionOrderRecord(existing, nextStatus)
       if (!transition.valid) throw new Error(transition.error)
       const validation = validateEntity('orders', transition.order, current, { existing })
@@ -160,6 +164,38 @@ export class LocalStorageRepository {
         data: validation.data,
         record: validation.data.orders.find((item) => item.id === id),
       }
+    })
+  }
+
+  completeOrderWithPayment(id, method) {
+    return this.mutate('complete order and record payment', (current) => {
+      const existing = current.orders.find((item) => item.id === id)
+      if (!existing) throw new Error(`No orders record exists with ID "${id}".`)
+      const balance = getOrderBalance(existing, current.payments)
+      let payment
+      if (balance > 0) {
+        if (!paymentMethods.includes(method)) throw new Error('Select a supported payment method.')
+        payment = {
+          id: createRecordId('payments'),
+          orderId: existing.id,
+          customer: existing.customer,
+          date: new Date().toISOString().slice(0, 10),
+          amount: balance,
+          method,
+          type: 'Balance',
+        }
+        const paymentValidation = validateEntity('payments', payment, current)
+        if (!paymentValidation.valid) throw new Error(paymentValidation.error)
+      }
+      const transition = transitionOrderRecord(existing, 'Completed')
+      if (!transition.valid) throw new Error(transition.error)
+      const orderValidation = validateEntity('orders', transition.order, current, { existing })
+      if (!orderValidation.valid) throw new Error(orderValidation.error)
+      const data = {
+        ...orderValidation.data,
+        payments: payment ? [payment, ...orderValidation.data.payments] : orderValidation.data.payments,
+      }
+      return { data, record: data.orders.find((item) => item.id === id), payment }
     })
   }
 

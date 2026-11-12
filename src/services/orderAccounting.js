@@ -3,7 +3,7 @@ import { isCancelledOrder, orderStatuses, requiresTailorForOrder } from './order
 export const paymentMethods = ['UPI', 'Cash', 'Card', 'Bank transfer', 'Cheque']
 export const paymentTypes = ['Advance', 'Balance', 'Partial']
 
-function toMinorUnits(value) {
+export function toMinorUnits(value) {
   const amount = Number(value)
   return Number.isFinite(amount) ? Math.round(amount * 100) : 0
 }
@@ -38,6 +38,7 @@ export function getPaidInPeriod(payments, periodKey) {
 }
 
 export function getOrderBalance(order, payments) {
+  if (!order || isCancelledOrder(order)) return 0
   const balanceInMinorUnits = toMinorUnits(order.amount) - toMinorUnits(getPaidForOrder(payments, order.id))
   return Math.max(0, balanceInMinorUnits) / 100
 }
@@ -54,6 +55,10 @@ export function getTotalOrderValue(orders) {
     return total + (Number.isFinite(amount) && amount > 0 ? toMinorUnits(amount) : 0)
   }, 0)
   return totalInMinorUnits / 100
+}
+
+export function getNonCancelledOrderValue(orders) {
+  return getTotalOrderValue(orders.filter((order) => !isCancelledOrder(order)))
 }
 
 export function validateOrderCreation(values) {

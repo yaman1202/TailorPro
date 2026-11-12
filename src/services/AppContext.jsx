@@ -50,7 +50,7 @@ export function AppProvider({ children, repository: providedRepository }) {
       return false
     }
     setStorageState((current) => {
-      if (operation === 'replace' && current.status === 'uninitialized') {
+      if ((operation === 'replace' || operation === 'update settings') && current.status === 'uninitialized') {
         return { ...current, error: error.message }
       }
       if (operation === 'replace' && ['corrupt', 'unavailable'].includes(current.status)) {

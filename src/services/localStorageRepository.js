@@ -4,6 +4,7 @@ import { validateData, validateEntity, validateSettings, validateDeletion } from
 import { transitionOrder as transitionOrderRecord } from './orderWorkflow.js'
 import { createBackup } from './backupService.js'
 import { getOrderBalance, paymentMethods } from './orderAccounting.js'
+import { getLocalDateKey } from './formatters.js'
 
 const collections = ['customers', 'measurements', 'orders', 'payments', 'staff', 'inventory']
 
@@ -102,6 +103,11 @@ export class LocalStorageRepository {
     })
   }
 
+  async archiveCustomer(id, archived = true) {
+    const result = await this.updateRecord('customers', id, { archived })
+    return result.record
+  }
+
   createOrder(order, optionalInitialPayment, optionalMeasurement) {
     const newOrder = { ...order, id: order.id || createRecordId('orders') }
     const initialPayment = optionalInitialPayment
@@ -119,6 +125,7 @@ export class LocalStorageRepository {
         const measurementValidation = validateEntity('measurements', newMeasurement, nextData)
         if (!measurementValidation.valid) throw new Error(measurementValidation.error)
         nextData = measurementValidation.data
+        newOrder.measurementId = newMeasurement.id
       }
       const orderValidation = validateEntity('orders', newOrder, nextData)
       if (!orderValidation.valid) throw new Error(orderValidation.error)
@@ -188,7 +195,7 @@ export class LocalStorageRepository {
           id: createRecordId('payments'),
           orderId: existing.id,
           customer: existing.customer,
-          date: new Date().toISOString().slice(0, 10),
+          date: getLocalDateKey(),
           amount: balance,
           method,
           type: 'Balance',

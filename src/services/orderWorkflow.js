@@ -1,3 +1,5 @@
+import { getLocalDateKey } from './formatters.js'
+
 export const orderStatuses = ['New', 'Confirmed', 'Assigned', 'Stitching', 'Quality Check', 'Ready', 'Completed', 'Cancelled']
 export const terminalOrderStatuses = ['Completed', 'Cancelled']
 export const activeOrderStatuses = orderStatuses.filter((status) => !terminalOrderStatuses.includes(status))
@@ -13,7 +15,7 @@ export function canTransitionOrder(order, nextStatus) {
   return !requiresTailorForOrder({ status: nextStatus }) || Boolean(order.tailor?.trim())
 }
 
-export function createOrderRecord(values, id, createdAt = new Date().toISOString().slice(0, 10)) {
+export function createOrderRecord(values, id, createdAt = getLocalDateKey()) {
   return { ...values, id, status: 'New', createdAt }
 }
 

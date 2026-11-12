@@ -76,11 +76,6 @@ export function validateMeasurement(measurement, { requireTemplateFields = true 
     if (Object.keys(measurement.values).length > 32) errors.push('A measurement profile cannot contain more than 32 fields.')
     const requiredFields = measurementFields[measurement.garment]
     if (requireTemplateFields && !requiredFields) errors.push('Select a supported garment measurement template.')
-    if (requireTemplateFields && requiredFields) {
-      requiredFields.forEach((field) => {
-        if (!numeric(measurement.values[field])) errors.push(`${field} must be a non-negative number.`)
-      })
-    }
     Object.entries(measurement.values).forEach(([field, value]) => {
       if (!hasText(field) || !numeric(value)) errors.push('Measurement values must be non-negative numbers.')
     })
@@ -107,6 +102,9 @@ export function validateOrder(order, { existing, payments = [], isImport = false
   if (order.measurementId != null && !hasText(order.measurementId)) errors.push('Order measurement profile reference must be text.')
   if (!isDate(order.dueDate)) errors.push('Order delivery date must use YYYY-MM-DD format.')
   if (!isDate(order.createdAt)) errors.push('Order creation date must use YYYY-MM-DD format.')
+  if (isDate(order.dueDate) && isDate(order.createdAt) && order.dueDate < order.createdAt) {
+    errors.push('Order delivery date cannot be earlier than the creation date.')
+  }
   if (!orderStatuses.includes(order.status)) errors.push('Order status is not supported.')
   if (!existing && !isImport && order.status !== 'New') errors.push('New orders must begin in the New status.')
   if (!existing && Array.isArray(customers) && customers.length > 0) {
@@ -211,9 +209,7 @@ export function validateRelationships(data) {
 
   for (const measurement of measurements) {
     if (!customerIds.has(measurement.customerId)) errors.push(`Measurement "${measurement.id}" references a missing customer.`)
-    else if (measurement.customer && customerNames.has(measurement.customerId) && measurement.customer !== customerNames.get(measurement.customerId)) {
-      errors.push(`Measurement "${measurement.id}" customer name does not match customer record.`)
-    }
+    // Measurements are immutable historical snapshots; customerId is the canonical reference.
   }
   for (const order of orders) {
     if (!customerIds.has(order.customerId)) errors.push(`Order "${order.id}" references a missing customer.`)
@@ -319,7 +315,7 @@ export function validateEntity(collection, record, data, { existing, excludeId }
   if (existing && collection === 'customers' && existing.name !== record.name) {
     nextData = {
       ...nextData,
-      measurements: data.measurements.map((item) => item.customerId === existing.id ? { ...item, customer: record.name } : item),
+      measurements: data.measurements,
       orders: nextData.orders.map((item) => item.customerId === existing.id ? { ...item, customer: record.name } : item),
       payments: data.payments,
     }

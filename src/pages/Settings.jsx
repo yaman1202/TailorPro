@@ -1,20 +1,25 @@
 import { useRef, useState } from 'react'
 import { Check, Download, Store, Upload, Wallet } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
-import { Button, Card, FormField, Modal, PageHeading } from '../components/UI.jsx'
+import { getLocalDateKey } from '../services/formatters.js'
+import { Button, Card, FormField, Modal, PageHeading, Select } from '../components/UI.jsx'
 import { previewBackup } from '../services/backupService.js'
 
 export default function Settings() {
   const { settings, updateSettings, replaceData, exportBackup: buildBackup } = useAppData()
   const [form, setForm] = useState(settings)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [backupMessage, setBackupMessage] = useState('')
   const [restorePreview, setRestorePreview] = useState(null)
   const fileInput = useRef(null)
   const set = (key, value) => { setForm((current) => ({ ...current, [key]: value })); setSaved(false) }
   const save = async (event) => {
     event.preventDefault()
+    if (saving) return
+    setSaving(true)
     const updated = await updateSettings(form)
+    setSaving(false)
     if (updated) {
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2800)
@@ -32,7 +37,7 @@ export default function Settings() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `tailorpro-backup-${new Date().toISOString().slice(0, 10)}.json`
+      link.download = `tailorpro-backup-${getLocalDateKey()}.json`
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       setBackupMessage('Backup downloaded.')
@@ -74,10 +79,10 @@ export default function Settings() {
     <form className="settings-layout" onSubmit={save}>
       <div className="settings-main">
         <Card className="settings-card"><div className="settings-card-heading"><span className="settings-icon"><Store size={18} /></span><div><h2>Business profile</h2><p>The details your customers see and your team works with.</p></div></div><div className="form-grid"><FormField label="Business name"><input required value={form.businessName || ''} onChange={(event) => set('businessName', event.target.value)} /></FormField><FormField label="Owner name"><input required value={form.owner || ''} onChange={(event) => set('owner', event.target.value)} /></FormField><FormField label="Business email"><input required type="email" value={form.email || ''} onChange={(event) => set('email', event.target.value)} /></FormField><FormField label="Phone number"><input required type="tel" value={form.phone || ''} onChange={(event) => set('phone', event.target.value)} /></FormField><FormField label="Studio address" className="field-full"><textarea rows="3" value={form.address || ''} onChange={(event) => set('address', event.target.value)} /></FormField></div></Card>
-        <Card className="settings-card"><div className="settings-card-heading"><span className="settings-icon"><Wallet size={18} /></span><div><h2>Regional preferences</h2><p>Choose how amounts are shown in your workspace.</p></div></div><FormField label="Display currency"><select value={form.currency || 'INR'} onChange={(event) => set('currency', event.target.value)}><option value="INR">Indian Rupee (₹ INR)</option><option value="USD">US Dollar ($ USD)</option><option value="GBP">British Pound (£ GBP)</option><option value="EUR">Euro (€ EUR)</option></select></FormField></Card>
+        <Card className="settings-card"><div className="settings-card-heading"><span className="settings-icon"><Wallet size={18} /></span><div><h2>Regional preferences</h2><p>Choose how amounts are shown in your workspace.</p></div></div><FormField label="Display currency"><Select value={form.currency || 'INR'} onChange={(event) => set('currency', event.target.value)}><option value="INR">Indian Rupee (₹ INR)</option><option value="USD">US Dollar ($ USD)</option><option value="GBP">British Pound (£ GBP)</option><option value="EUR">Euro (€ EUR)</option></Select><small className="field-note">Changing currency updates formatting and symbols only; existing recorded figures are not converted.</small></FormField></Card>
       </div>
       <aside className="settings-aside"><Card className="settings-card"><div className="settings-card-heading"><span className="settings-icon"><Check size={18} /></span><div><h2>Studio preferences</h2><p>Small reminders for a smoother workday.</p></div></div><label className="toggle-row"><span><strong>Delivery reminders</strong><small>Remind me about upcoming handoffs.</small></span><input type="checkbox" checked={Boolean(form.reminders)} onChange={(event) => set('reminders', event.target.checked)} /><i /></label><label className="toggle-row"><span><strong>Low-stock alerts</strong><small>Flag supplies below their reorder point.</small></span><input type="checkbox" checked={Boolean(form.lowStockAlerts)} onChange={(event) => set('lowStockAlerts', event.target.checked)} /><i /></label></Card><Card className="settings-note"><span className="eyebrow">A NOTE FROM THE WORKROOM</span><p>Your studio preferences are saved with the selected data repository.</p><span>Thoughtfully yours, <strong>TailorPro</strong></span><hr /><div><strong>Data backup</strong><p>Export or restore a validated JSON copy for the selected data repository.</p><div className="modal-actions"><Button type="button" variant="secondary" icon={Download} onClick={exportBackup}>Export JSON</Button><Button type="button" variant="secondary" icon={Upload} onClick={() => fileInput.current?.click()}>Import JSON</Button></div><input ref={fileInput} className="visually-hidden" type="file" accept=".json,application/json" onChange={importBackup} />{backupMessage && <p className="form-hint" role="status">{backupMessage}</p>}</div></Card></aside>
-      <div className="settings-savebar"><span>{saved ? <><Check size={15} /> Changes saved</> : 'Your changes are saved in the selected data repository.'}</span><Button type="submit">Save changes</Button></div>
+      <div className="settings-savebar"><span>{saved ? <><Check size={15} /> Changes saved</> : 'Your changes are saved in the selected data repository.'}</span><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>
     </form>
     {restorePreview && <Modal title="Review backup restore" description="Review the backup before replacing data in the selected repository." onClose={() => setRestorePreview(null)}>
       {restorePreview.preview.valid ? <>

@@ -39,6 +39,7 @@ test('measurement values convert accurately between inches and centimetres', () 
 test('order garment aliases find previous corresponding measurement profiles', () => {
   assert.deepEqual(getMeasurementGarmentsForOrder('Formal shirt'), ['Shirt', 'Formal shirt'])
   assert.deepEqual(getMeasurementGarmentsForOrder('Two-piece suit'), ['Suit/Blazer', 'Two-piece suit'])
+  assert.deepEqual(getMeasurementGarmentsForOrder('Kurta & trouser'), ['Kurta', 'Trouser'])
   assert.deepEqual(getMeasurementGarmentsForOrder('Trouser'), ['Trouser'])
 })
 

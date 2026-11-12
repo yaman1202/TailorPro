@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Clock3, Pencil, Plus, Ruler, Trash2 } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
+import { getLocalDateKey } from '../services/formatters.js'
 import { AddButton, Badge, Button, FormField, Modal, PageHeading, SearchBox, Select, TableFrame } from '../components/UI.jsx'
 import DataTable from '../components/DataTable.jsx'
 import { convertMeasurementValues, copyMeasurementValues, measurementFields, measurementTemplates } from '../data/measurementTemplates.js'
 import { validateEntity } from '../services/validation.js'
 
-const blankMeasurement = { customerId: '', garment: 'Shirt', unit: 'in', values: {} }
+const blankMeasurement = { customerId: null, garment: 'Shirt', unit: 'in', values: {} }
 const newCustomerOption = '__new_customer__'
 const blankCustomer = { name: '', phone: '', email: '', address: '', city: '' }
 
@@ -25,10 +26,13 @@ export default function Measurements() {
   const [form, setForm] = useState(blankMeasurement)
   const [newCustomer, setNewCustomer] = useState(blankCustomer)
   const [customerFeedback, setCustomerFeedback] = useState('')
+  const [measurementFeedback, setMeasurementFeedback] = useState('')
   const [savingCustomer, setSavingCustomer] = useState(false)
+  const [savingMeasurement, setSavingMeasurement] = useState(false)
   const routeCustomerId = searchParams.get('customerId')
-  const modalOpen = manualModalOpen || Boolean(routeCustomerId && customers.some((customer) => customer.id === routeCustomerId))
-  const selectedCustomerId = form.customerId || routeCustomerId || ''
+  const validRouteCustomerId = routeCustomerId && customers.some((customer) => customer.id === routeCustomerId) ? routeCustomerId : ''
+  const modalOpen = manualModalOpen || Boolean(validRouteCustomerId)
+  const selectedCustomerId = form.customerId !== null ? form.customerId : validRouteCustomerId
   const customerName = (id) => customers.find((customer) => customer.id === id)?.name || 'Unknown customer'
   const filtered = useMemo(() => measurements.filter((profile) => (
     `${customers.find((customer) => customer.id === profile.customerId)?.name || 'Unknown customer'} ${profile.garment}`.toLowerCase().includes(query.toLowerCase())
@@ -46,11 +50,15 @@ export default function Measurements() {
     setCustomFieldName('')
     setNewCustomer(blankCustomer)
     setCustomerFeedback('')
+    setMeasurementFeedback('')
     setManualModalOpen(true)
   }
 
   const closeMeasurementModal = () => {
     setManualModalOpen(false)
+    setForm(blankMeasurement)
+    setMeasurementFeedback('')
+    setCustomerFeedback('')
     const nextParams = new URLSearchParams(searchParams)
     nextParams.delete('customerId')
     nextParams.delete('open')
@@ -62,7 +70,7 @@ export default function Measurements() {
     setSavingCustomer(true)
     setCustomerFeedback('')
     const values = Object.fromEntries(Object.entries(newCustomer).map(([field, value]) => [field, value.trim()]))
-    const joined = new Date().toISOString().slice(0, 10)
+    const joined = getLocalDateKey()
     const validation = validateEntity('customers', { ...values, id: 'pending-customer', joined }, {
       customers,
       measurements,
@@ -91,7 +99,10 @@ export default function Measurements() {
     }
   }
 
-  const setGarment = (garment) => setForm((current) => ({ ...current, garment, values: {} }))
+  const setGarment = (garment) => {
+    setMeasurementFeedback('')
+    setForm((current) => ({ ...current, garment, values: {} }))
+  }
   const setUnit = (unit) => setForm((current) => ({
     ...current,
     unit,
@@ -100,16 +111,17 @@ export default function Measurements() {
 
   const addCustomField = () => {
     const label = customFieldName.trim()
+    setMeasurementFeedback('')
     if (!label) {
-      window.alert('Enter a name for the custom measurement.')
+      setMeasurementFeedback('Enter a name for the custom measurement.')
       return
     }
     if (Object.keys(form.values).some((field) => field.toLocaleLowerCase() === label.toLocaleLowerCase())) {
-      window.alert('A measurement with that name already exists.')
+      setMeasurementFeedback('A measurement with that name already exists.')
       return
     }
     if (Object.keys(form.values).length >= 32) {
-      window.alert('A measurement profile cannot contain more than 32 fields.')
+      setMeasurementFeedback('A measurement profile cannot contain more than 32 fields.')
       return
     }
     setForm((current) => ({ ...current, values: { ...current.values, [label]: '' } }))
@@ -123,37 +135,57 @@ export default function Measurements() {
 
   const save = async (event) => {
     event.preventDefault()
+    if (savingMeasurement) return
+    setMeasurementFeedback('')
     const customer = customers.find((item) => item.id === selectedCustomerId)
     if (!customer) {
-      window.alert('Select a customer before saving measurements.')
+      setMeasurementFeedback('Select a customer before saving measurements.')
       return
     }
     const version = measurements
       .filter((item) => item.customerId === customer.id && item.garment === form.garment)
       .reduce((max, item) => Math.max(max, item.version || 0), 0) + 1
-    const values = Object.fromEntries(Object.entries(form.values).map(([field, value]) => [field, String(value).trim()]))
+    const values = Object.fromEntries(
+      Object.entries(form.values)
+        .map(([field, value]) => [field, String(value ?? '').trim()])
+        .filter(([, value]) => value !== ''),
+    )
     const record = {
       customerId: customer.id,
       customer: customer.name,
       garment: form.garment,
-      date: new Date().toISOString().slice(0, 10),
+      date: getLocalDateKey(),
       version,
       unit: form.unit,
       values,
     }
     const validation = validateEntity('measurements', { ...record, id: 'pending-measurement' }, { customers, measurements, orders, payments, staff, inventory })
     if (!validation.valid) {
-      window.alert(validation.error)
+      setMeasurementFeedback(validation.error)
       return
     }
-    if (await addRecord('measurements', record)) closeMeasurementModal()
+    setSavingMeasurement(true)
+    const added = await addRecord('measurements', record)
+    setSavingMeasurement(false)
+    if (added) closeMeasurementModal()
+    else setMeasurementFeedback('Measurements could not be saved. Review any error notice above and retry.')
   }
 
   const columns = [
-    { key: 'customer', label: 'CUSTOMER', render: (profile) => {
-      const name = customerName(profile.customerId)
-      return <span className="customer-cell"><span className="mini-avatar">{initials(name)}</span><strong>{name}</strong></span>
-    } },
+    {
+      key: 'customer',
+      label: 'CUSTOMER',
+      render: (profile) => {
+        const customerRecord = customers.find((customer) => customer.id === profile.customerId)
+        const name = customerRecord?.name || 'Unknown customer'
+        return (
+          <span className="customer-cell">
+            <span className="mini-avatar">{initials(name)}</span>
+            <strong>{name} {customerRecord?.archived && <span className="count-pill">Archived</span>}</strong>
+          </span>
+        )
+      },
+    },
     { key: 'garment', label: 'GARMENT', render: (profile) => <span className="garment-name"><Ruler size={15} />{profile.garment}</span> },
     { key: 'version', label: 'VERSION', render: (profile) => <Badge tone="version">Version {profile.version}</Badge> },
     { key: 'date', label: 'RECORDED', render: (profile) => new Date(`${profile.date}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) },
@@ -187,9 +219,22 @@ export default function Measurements() {
     </TableFrame>
     {modalOpen && <Modal title="Save measurements" description="A new version will be created. Previous measurements are never replaced." onClose={closeMeasurementModal} wide><form onSubmit={save} className="form-stack">
       <div className="form-grid">
-        <FormField label="Customer"><Select required value={form.customerId || routeCustomerId || ''} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}><option value="">Choose existing or new customer</option>{customers.filter((customer) => !customer.archived || customer.id === selectedCustomerId).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}<option value={newCustomerOption}>+ Add a new customer</option></Select></FormField>
+        <FormField label="Customer">
+          <Select
+            required
+            value={selectedCustomerId || ''}
+            onChange={(event) => {
+              setMeasurementFeedback('')
+              setForm((current) => ({ ...current, customerId: event.target.value }))
+            }}
+          >
+            <option value="">Choose existing or new customer</option>
+            {customers.filter((customer) => !customer.archived || customer.id === selectedCustomerId).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            <option value={newCustomerOption}>+ Add a new customer</option>
+          </Select>
+        </FormField>
       </div>
-      {form.customerId === newCustomerOption && <div className="inline-customer-create">
+      {selectedCustomerId === newCustomerOption && <div className="inline-customer-create">
         <div className="inline-customer-heading"><strong>New customer</strong><small>Save their details to continue straight to measurements.</small></div>
         <div className="form-grid">
           <FormField label="Customer name"><input required value={newCustomer.name} onChange={(event) => setNewCustomer({ ...newCustomer, name: event.target.value })} /></FormField>
@@ -206,14 +251,15 @@ export default function Measurements() {
         <FormField label="Garment profile"><Select value={form.garment} onChange={(event) => setGarment(event.target.value)}>{measurementTemplates.map(({ group, garments }) => <optgroup key={group} label={group}>{garments.map(({ name }) => <option key={name}>{name}</option>)}</optgroup>)}</Select></FormField>
         <FormField label="Measurement unit"><Select value={form.unit} onChange={(event) => setUnit(event.target.value)}><option value="in">Inches (in)</option><option value="cm">Centimetres (cm)</option></Select></FormField>
       </div>
-      <div className="form-divider"><span>{form.garment} measurements</span><small>Required fields · values in {form.unit === 'in' ? 'inches' : 'centimetres'}</small></div>
-      <div className="measurement-fields">{templateFields.map((label) => <FormField key={label} label={label}><div className="unit-input"><input type="number" step="0.1" min="0" required value={form.values[label] || ''} onChange={(event) => setForm((current) => ({ ...current, values: { ...current.values, [label]: event.target.value } }))} placeholder="0.0" /><span>{form.unit}</span></div></FormField>)}</div>
+      <div className="form-divider"><span>{form.garment} measurements</span><small>Enter any measurements · values in {form.unit === 'in' ? 'inches' : 'centimetres'}</small></div>
+      <div className="measurement-fields">{templateFields.map((label) => <FormField key={label} label={label}><div className="unit-input"><input type="number" step="0.1" min="0" value={form.values[label] || ''} onChange={(event) => { setMeasurementFeedback(''); setForm((current) => ({ ...current, values: { ...current.values, [label]: event.target.value } })) }} placeholder="0.0" /><span>{form.unit}</span></div></FormField>)}</div>
       <div className="custom-measurements">
         <div className="custom-measurements-heading"><div><strong>Custom measurements</strong><small>Add a shop-specific fitting detail.</small></div></div>
         <div className="custom-field-add"><input aria-label="Custom measurement name" value={customFieldName} onChange={(event) => setCustomFieldName(event.target.value)} placeholder="e.g. Shoulder to waist" /><Button type="button" variant="secondary" onClick={addCustomField}><Plus size={14} />Add field</Button></div>
-        {customFields.map((field) => <div className="custom-field-row" key={field}><FormField label={field}><div className="unit-input"><input type="number" step="0.1" min="0" required value={form.values[field] || ''} onChange={(event) => setForm((current) => ({ ...current, values: { ...current.values, [field]: event.target.value } }))} placeholder="0.0" /><span>{form.unit}</span></div></FormField><button type="button" className="icon-button" aria-label={`Remove ${field}`} onClick={() => removeCustomField(field)}><Trash2 size={15} /></button></div>)}
+        {customFields.map((field) => <div className="custom-field-row" key={field}><FormField label={field}><div className="unit-input"><input type="number" step="0.1" min="0" value={form.values[field] || ''} onChange={(event) => { setMeasurementFeedback(''); setForm((current) => ({ ...current, values: { ...current.values, [field]: event.target.value } })) }} placeholder="0.0" /><span>{form.unit}</span></div></FormField><button type="button" className="icon-button" aria-label={`Remove ${field}`} onClick={() => removeCustomField(field)}><Trash2 size={15} /></button></div>)}
       </div>
-      <div className="modal-actions"><Button type="button" variant="secondary" onClick={closeMeasurementModal}>Cancel</Button><Button type="submit">Save new version</Button></div>
+      {measurementFeedback && <p className="customer-feedback customer-feedback-error" role="alert">{measurementFeedback}</p>}
+      <div className="modal-actions"><Button type="button" variant="secondary" disabled={savingMeasurement} onClick={closeMeasurementModal}>Cancel</Button><Button type="submit" disabled={savingMeasurement}>{savingMeasurement ? 'Saving…' : 'Save new version'}</Button></div>
       </>}
     </form></Modal>}
     {historyProfile && <Modal title="Fitting history" description={`${customerName(historyProfile.customerId)} · ${historyProfile.garment}`} onClose={() => setHistoryProfile(null)}><div className="version-history">{measurements.filter((item) => item.customerId === historyProfile.customerId && item.garment === historyProfile.garment).sort((a, b) => b.version - a.version).map((profile, index) => <div className={`version-item ${index === 0 ? 'current' : ''}`} key={profile.id}><div className="version-heading"><div><strong>Version {profile.version}</strong>{index === 0 && <Badge tone="current">Latest</Badge>}</div><span>{new Date(`${profile.date}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · {profile.unit || 'in'}</span></div><div className="version-measures">{Object.entries(profile.values || {}).map(([key, value]) => <span key={key}>{key}<strong>{value} {profile.unit || 'in'}</strong></span>)}</div></div>)}</div><div className="modal-actions"><Button variant="secondary" onClick={() => setHistoryProfile(null)}>Close</Button><Button onClick={() => { setHistoryProfile(null); openNew(historyProfile) }}>Copy into new version</Button></div></Modal>}

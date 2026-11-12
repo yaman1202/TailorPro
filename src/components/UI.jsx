@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { X, Search, ChevronDown, Plus, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { X, Search, ChevronDown, Plus, ArrowUpRight, ArrowDownRight, Sparkles } from 'lucide-react'
 
 export function PageHeading({ eyebrow, title, description, action }) {
   return (
@@ -9,26 +9,47 @@ export function PageHeading({ eyebrow, title, description, action }) {
         <h1>{title}</h1>
         {description && <p>{description}</p>}
       </div>
-      {action}
+      {action && <div className="page-heading-action">{action}</div>}
     </div>
   )
 }
 
 export function Button({ children, variant = 'primary', icon: Icon, className = '', ...props }) {
-  return <button className={`button button-${variant} ${className}`} {...props}>{Icon && <Icon size={16} strokeWidth={2} />}{children}</button>
+  return (
+    <button className={`button button-${variant} ${className}`} {...props}>
+      {Icon && <Icon size={16} strokeWidth={2} />}
+      {children}
+    </button>
+  )
 }
 
 export function IconButton({ label, children, ...props }) {
-  return <button className="icon-button" aria-label={label} title={label} {...props}>{children}</button>
+  return (
+    <button className="icon-button" aria-label={label} title={label} {...props}>
+      {children}
+    </button>
+  )
 }
 
 export function SearchBox({ value, onChange, placeholder = 'Search...' }) {
-  return <label className="search-box"><Search size={16} /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>
+  return (
+    <label className="search-box">
+      <Search size={16} aria-hidden="true" />
+      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </label>
+  )
 }
 
 export function Select({ value, onChange, children, ...props }) {
   const { className = '', ...selectProps } = props
-  return <div className={`select-wrap ${className}`}><select value={value} onChange={onChange} {...selectProps}>{children}</select><ChevronDown size={15} /></div>
+  return (
+    <div className={`select-wrap ${className}`}>
+      <select value={value} onChange={onChange} {...selectProps}>
+        {children}
+      </select>
+      <ChevronDown size={15} aria-hidden="true" />
+    </div>
+  )
 }
 
 export function Badge({ children, tone }) {
@@ -50,7 +71,15 @@ export function Modal({ title, description, onClose, children, wide = false, cla
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="modal-heading"><div><h2 id="modal-title">{title}</h2>{description && <p>{description}</p>}</div><IconButton label="Close dialog" onClick={onClose}><X size={18} /></IconButton></div>
+        <div className="modal-heading">
+          <div>
+            <h2 id="modal-title">{title}</h2>
+            {description && <p>{description}</p>}
+          </div>
+          <IconButton label="Close dialog" onClick={onClose}>
+            <X size={18} />
+          </IconButton>
+        </div>
         {children}
       </section>
     </div>
@@ -58,19 +87,46 @@ export function Modal({ title, description, onClose, children, wide = false, cla
 }
 
 export function FormField({ label, children, className = '' }) {
-  return <label className={`form-field ${className}`}><span>{label}</span>{children}</label>
+  return (
+    <label className={`form-field ${className}`}>
+      <span>{label}</span>
+      {children}
+    </label>
+  )
 }
 
 export function EmptyState({ title, message }) {
-  return <div className="empty-state"><span className="empty-mark">✳</span><strong>{title}</strong><p>{message}</p></div>
+  return (
+    <div className="empty-state">
+      <span className="empty-mark"><Sparkles size={18} /></span>
+      <strong>{title}</strong>
+      <p>{message}</p>
+    </div>
+  )
 }
 
 export function TableToolbar({ search, setSearch, children, placeholder }) {
-  return <div className="table-toolbar"><SearchBox value={search} onChange={setSearch} placeholder={placeholder} /><div className="toolbar-actions">{children}</div></div>
+  return (
+    <div className="table-toolbar">
+      <SearchBox value={search} onChange={setSearch} placeholder={placeholder} />
+      <div className="toolbar-actions">{children}</div>
+    </div>
+  )
 }
 
 export function TableFrame({ title, note, children, action, className = '' }) {
-  return <Card className={`table-card ${className}`}><div className="card-heading"><div><h2>{title}</h2>{note && <p>{note}</p>}</div>{action}</div>{children}</Card>
+  return (
+    <Card className={`table-card ${className}`}>
+      <div className="card-heading">
+        <div>
+          <h2>{title}</h2>
+          {note && <p>{note}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </Card>
+  )
 }
 
 export function AddButton({ children = 'Add new', ...props }) {
@@ -79,5 +135,10 @@ export function AddButton({ children = 'Add new', ...props }) {
 
 export function Trend({ children, direction = 'up' }) {
   const Icon = direction === 'up' ? ArrowUpRight : ArrowDownRight
-  return <span className={`trend trend-${direction}`}><Icon size={14} />{children}</span>
+  return (
+    <span className={`trend trend-${direction}`}>
+      <Icon size={14} />
+      {children}
+    </span>
+  )
 }

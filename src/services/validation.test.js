@@ -48,6 +48,7 @@ test('measurement validator enforces template fields and non-negative numeric va
     values: Object.fromEntries(fields.map((field) => [field, '10.5'])),
   }
   isValid(validateMeasurement(measurement))
+  isValid(validateMeasurement({ ...measurement, values: { Chest: '40' } }))
   isInvalid(validateMeasurement({ ...measurement, version: 0 }), /positive integer/i)
   isInvalid(validateMeasurement({ ...measurement, values: { ...measurement.values, Neck: '-1' } }), /non-negative number/i)
   isInvalid(validateMeasurement({ ...measurement, values: {} }), /at least one/i)
@@ -74,6 +75,7 @@ test('order validator enforces amount, status, date, and creation workflow rules
   isInvalid(validateOrder({ ...order, amount: 0 }), /greater than zero/i)
   isInvalid(validateOrder({ ...order, status: 'Unknown' }), /status is not supported/i)
   isInvalid(validateOrder({ ...order, dueDate: 'not-a-date' }), /delivery date/i)
+  isInvalid(validateOrder({ ...order, dueDate: '2026-10-29' }), /earlier than the creation date/i)
   isInvalid(validateOrder({ ...order, advance: 101 }), /advance/i)
   isInvalid(validateOrder({ ...order, status: 'Assigned' }), /begin in the New status/i)
 })
@@ -126,6 +128,13 @@ test('relationship validation rejects missing customer, staff, and order referen
     version: 1,
     values: Object.fromEntries(measurementFields['Formal shirt'].map((field) => [field, 10])),
   }, data()), /missing customer/i)
+
+  const renameFixture = data()
+  const renamedTarget = renameFixture.customers[0]
+  const renameResult = validateEntity('customers', { ...renamedTarget, name: 'Aarav Mehta Updated' }, renameFixture, { existing: renamedTarget })
+  isValid(renameResult)
+  assert.equal(renameResult.data.orders.find((item) => item.customerId === renamedTarget.id).customer, 'Aarav Mehta Updated')
+  assert.equal(renameResult.data.measurements.find((item) => item.customerId === renamedTarget.id).customer, renamedTarget.name)
 })
 
 test('orders can link only to a measurement profile owned by the same customer', () => {

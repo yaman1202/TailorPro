@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   canAcceptPayment,
   canDeleteOrder,
+  getNonCancelledOrderValue,
   getOrderBalance,
   getOutstandingBalance,
   getPaidForOrder,
@@ -75,6 +76,8 @@ test('payment totals and outstanding balances use cent precision and exclude can
   assert.equal(getTotalPaid(payments), 50.3)
   assert.equal(getPaidInPeriod(payments, '2026-10'), 50.3)
   assert.equal(getTotalOrderValue(orders), 91)
+  assert.equal(getNonCancelledOrderValue(orders), 11)
+  assert.equal(getOrderBalance(orders[1], payments), 0)
   assert.equal(getOutstandingBalance(orders, payments), 10.7)
   assert.equal(canAcceptPayment(orders[2], payments), true)
   assert.equal(canAcceptPayment(orders[1], payments), false)

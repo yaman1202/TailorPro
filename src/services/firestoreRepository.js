@@ -3,6 +3,7 @@ import { createBackup } from './backupService.js'
 import { canAcceptPayment, getPaidForOrder, paymentMethods } from './orderAccounting.js'
 import { transitionOrder as transitionOrderRecord } from './orderWorkflow.js'
 import { FIRESTORE_BUSINESS_ID, getOwnerFirestore } from './firebase/firebaseFirestore.js'
+import { getLocalDateKey } from './formatters.js'
 
 const dataCollections = ['customers', 'measurements', 'orders', 'payments', 'staff', 'inventory']
 const transactionWriteLimit = 500
@@ -486,7 +487,7 @@ export class FirestoreRepository {
           return { ...result, data: refreshed.data }
         } catch (error) {
           const repositoryError = classifyFirestoreError(error)
-          if (!loadedResult && (repositoryError.category === 'conflict' || repositoryError.category === 'permission-denied') && attempt < 3) {
+          if (!loadedResult && repositoryError.category === 'conflict' && attempt < 3) {
             try {
               loaded = await this.load()
               continue
@@ -785,7 +786,7 @@ export class FirestoreRepository {
     const payment = {
       id: makeRecordId('payments'),
       orderId: id,
-      date: new Date().toISOString().slice(0, 10),
+      date: getLocalDateKey(),
       method,
       type: 'Balance',
     }
@@ -899,6 +900,9 @@ export class FirestoreRepository {
       } else {
         paidMinorUnits = toMinorUnits(getPaidForOrder(current.payments, order.id))
         paymentCount = current.payments.filter((entry) => entry.orderId === order.id).length
+        if (paymentCount > 0) {
+          throw new Error(`Order accounting metadata is missing for order "${order.id}".`)
+        }
       }
 
       const availableBalance = toMinorUnits(order.amount) - paidMinorUnits

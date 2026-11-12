@@ -59,6 +59,7 @@ export const measurementFields = Object.fromEntries(
 const orderGarmentAliases = {
   'Formal shirt': ['Shirt', 'Formal shirt'],
   'Two-piece suit': ['Suit/Blazer', 'Two-piece suit'],
+  'Kurta & trouser': ['Kurta', 'Trouser'],
   'Silk blouse': ['Blouse'],
   'Anarkali suit': ['Suit'],
   'Evening dress': ['Dress'],

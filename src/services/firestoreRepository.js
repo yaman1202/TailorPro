@@ -501,11 +501,28 @@ export class FirestoreRepository {
           return { ...result, data: refreshed.data }
         } catch (error) {
           const repositoryError = classifyFirestoreError(error)
-          if (!loadedResult && repositoryError.category === 'conflict' && attempt < 3) {
+          const retryableSnapshotConflict = repositoryError.category === 'conflict'
+          const possibleConcurrentPermissionConflict = repositoryError.category === 'permission-denied'
+
+          if (!loadedResult && attempt < 3
+            && (retryableSnapshotConflict || possibleConcurrentPermissionConflict)) {
             try {
-              loaded = await this.load()
+              // A concurrent transaction can commit between this transaction's reads and
+              // its Rules evaluation. Some emulator/runtime combinations report that race
+              // as permission-denied instead of aborted; retry only when the workspace
+              // revision proves that another transaction actually committed.
+              if (possibleConcurrentPermissionConflict) {
+                await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)))
+              }
+              const refreshed = await this.load()
+              if (possibleConcurrentPermissionConflict && refreshed.revision === loaded.revision) {
+                repositoryError.operation ||= operation
+                throw repositoryError
+              }
+              loaded = refreshed
               continue
-            } catch {
+            } catch (refreshError) {
+              if (refreshError === repositoryError) throw repositoryError
               repositoryError.operation ||= operation
               throw repositoryError
             }

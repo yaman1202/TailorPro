@@ -50,6 +50,21 @@ function classifyFirestoreError(error) {
   )
 }
 
+
+function isValidMeasurementPhotoMetadata(photo, orderId) {
+  if (!photo || typeof photo !== 'object' || Array.isArray(photo)) return false
+  const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt', 'downloadURL']
+  return Object.keys(photo).every((key) => allowed.includes(key))
+    && typeof photo.path === 'string'
+    && photo.path === `businesses/${FIRESTORE_BUSINESS_ID}/orders/${orderId}/measurement/${photo.name}`
+    && typeof photo.name === 'string'
+    && /^measurement-[A-Za-z0-9-]+\.(jpg|png|webp)$/.test(photo.name)
+    && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)
+    && Number.isSafeInteger(photo.size) && photo.size > 0 && photo.size <= 10 * 1024 * 1024
+    && typeof photo.uploadedAt === 'string'
+    && typeof photo.downloadURL === 'string'
+}
+
 function malformed(message, cause) {
   return new FirestoreRepositoryError('malformed-data', message, cause)
 }
@@ -275,7 +290,7 @@ function assertBackupFields(data) {
   const allowedFields = {
     customers: ['id', 'name', 'phone', 'email', 'address', 'city', 'joined', 'archived'],
     measurements: ['id', 'customerId', 'customer', 'garment', 'date', 'version', 'unit', 'values'],
-    orders: ['id', 'customerId', 'customer', 'garment', 'measurementId', 'tailor', 'dueDate', 'amount', 'advance', 'status', 'createdAt'],
+    orders: ['id', 'customerId', 'customer', 'garment', 'measurementId', 'tailor', 'dueDate', 'amount', 'advance', 'status', 'createdAt', 'measurementPhoto'],
     payments: ['id', 'orderId', 'customer', 'date', 'amount', 'method', 'type'],
     staff: ['id', 'name', 'role', 'phone', 'email', 'active'],
     inventory: ['id', 'name', 'category', 'sku', 'quantity', 'unit', 'reorderAt', 'price'],
@@ -626,6 +641,9 @@ export class FirestoreRepository {
 
   async createOrder(order, optionalInitialPayment, optionalMeasurement) {
     const newOrder = { ...order, id: order.id || makeRecordId('orders') }
+    if (newOrder.measurementPhoto && !isValidMeasurementPhotoMetadata(newOrder.measurementPhoto, newOrder.id)) {
+      throw new Error('Measurement photo metadata is invalid or does not belong to this order.')
+    }
     const initialPayment = optionalInitialPayment
       ? { ...optionalInitialPayment, id: optionalInitialPayment.id || makeRecordId('payments') }
       : null

@@ -152,7 +152,7 @@ service cloud.firestore {
             && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)))
         && (!('measurementPhoto' in data)
           || (data.measurementPhoto is map
-            && data.measurementPhoto.keys().hasOnly(['path', 'name', 'contentType', 'size', 'uploadedAt', 'downloadURL'])
+            && data.measurementPhoto.keys().hasOnly(['path', 'name', 'contentType', 'size', 'uploadedAt'])
             && data.measurementPhoto.path is string
             && data.measurementPhoto.path.matches('businesses/' + businessId + '/orders/' + documentId + '/measurement/measurement-[A-Za-z0-9-]+\\.(jpg|png|webp)')
             && data.measurementPhoto.name is string
@@ -160,8 +160,7 @@ service cloud.firestore {
             && data.measurementPhoto.size is int
             && data.measurementPhoto.size > 0
             && data.measurementPhoto.size <= 10 * 1024 * 1024
-            && data.measurementPhoto.uploadedAt is string
-            && data.measurementPhoto.downloadURL is string));
+            && data.measurementPhoto.uploadedAt is string));
     }
 
     function statusRequiresTailor(status) {

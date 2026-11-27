@@ -7,15 +7,19 @@ export default function MeasurementPhotoPreview({ photo }) {
 
   useEffect(() => {
     let active = true
-    getOrderMeasurementPhotoUrl(photo.path)
-      .then((blob) => { if (active) setUrl(URL.createObjectURL(blob)) })
+    let objectUrl = ''
+    setUrl('')
+    setError('')
+    getOrderMeasurementPhotoBlob(photo.path)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob)
+        if (active) setUrl(objectUrl)
+        else URL.revokeObjectURL(objectUrl)
+      })
       .catch(() => { if (active) setError('The measurement photo could not be loaded. Check Firebase Storage access.') })
     return () => {
       active = false
-      setUrl((current) => {
-        if (current) URL.revokeObjectURL(current)
-        return ''
-      })
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [photo.path])
 

@@ -53,7 +53,7 @@ function classifyFirestoreError(error) {
 
 function isValidMeasurementPhotoMetadata(photo, orderId) {
   if (!photo || typeof photo !== 'object' || Array.isArray(photo)) return false
-  const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt', 'downloadURL']
+  const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt']
   return Object.keys(photo).every((key) => allowed.includes(key))
     && typeof photo.path === 'string'
     && photo.path === `businesses/${FIRESTORE_BUSINESS_ID}/orders/${orderId}/measurement/${photo.name}`
@@ -62,7 +62,6 @@ function isValidMeasurementPhotoMetadata(photo, orderId) {
     && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)
     && Number.isSafeInteger(photo.size) && photo.size > 0 && photo.size <= 10 * 1024 * 1024
     && typeof photo.uploadedAt === 'string'
-    && typeof photo.downloadURL === 'string'
 }
 
 function malformed(message, cause) {

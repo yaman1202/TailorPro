@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getOrderMeasurementPhotoUrl } from '../services/firebase/orderMeasurementPhotos.js'
+import { getOrderMeasurementPhotoBlob } from '../services/firebase/orderMeasurementPhotos.js'
 
 export default function MeasurementPhotoPreview({ photo }) {
   const [url, setUrl] = useState('')
@@ -8,9 +8,15 @@ export default function MeasurementPhotoPreview({ photo }) {
   useEffect(() => {
     let active = true
     getOrderMeasurementPhotoUrl(photo.path)
-      .then((value) => { if (active) setUrl(value) })
+      .then((blob) => { if (active) setUrl(URL.createObjectURL(blob)) })
       .catch(() => { if (active) setError('The measurement photo could not be loaded. Check Firebase Storage access.') })
-    return () => { active = false }
+    return () => {
+      active = false
+      setUrl((current) => {
+        if (current) URL.revokeObjectURL(current)
+        return ''
+      })
+    }
   }, [photo.path])
 
   if (error) return <p className="form-hint" role="alert">{error}</p>

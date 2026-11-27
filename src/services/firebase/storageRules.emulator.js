@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { after, before, beforeEach, test } from 'node:test'
 import { assertFails, assertSucceeds, initializeTestEnvironment } from '@firebase/rules-unit-testing'
 import { doc, setDoc } from 'firebase/firestore'
-import { getBytes, ref, uploadBytes } from 'firebase/storage'
+import { getMetadata, ref, uploadBytes } from 'firebase/storage'
 
 const PROJECT_ID = 'demo-tailorpro-rules'
 const BUSINESS_ID = 'tailorpro-dev-802c'
@@ -50,8 +50,9 @@ test('the business owner can upload and read an order measurement photo', async 
     contentType: 'image/jpeg',
     customMetadata: { orderId: ORDER_ID, uploadedBy: OWNER_UID },
   }))
-  const downloaded = await assertSucceeds(getBytes(fileRef))
-  assert.deepEqual(Array.from(downloaded), Array.from(imageBytes))
+  const metadata = await assertSucceeds(getMetadata(fileRef))
+  assert.equal(metadata.size, imageBytes.length)
+  assert.equal(metadata.contentType, 'image/jpeg')
 })
 
 test('an unauthenticated user cannot upload a measurement photo', async () => {

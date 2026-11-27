@@ -3995,7 +3995,7 @@ textarea:focus-visible,
   padding: 12px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: var(--surface-soft);
+  background: var(--surface-alt);
 }
 .measurement-photo-local-preview {
   width: 104px;
@@ -4015,7 +4015,7 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
 }
 .measurement-photo-file-details small {
-  color: var(--text-muted);
+  color: var(--muted);
 }
 .measurement-photo-preview-link {
   display: inline-flex;

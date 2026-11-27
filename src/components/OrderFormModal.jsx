@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Camera, ImagePlus, Plus, Ruler, Trash2, UserCheck, X } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { getLocalDateKey } from '../services/formatters.js'
@@ -79,7 +79,9 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
   const [savingOrder, setSavingOrder] = useState(false)
   const [measurementPhoto, setMeasurementPhoto] = useState(null)
   const [measurementPhotoError, setMeasurementPhotoError] = useState('')
-  const [measurementPhotoPreview, setMeasurementPhotoPreview] = useState('')
+  const measurementPhotoPreview = useMemo(() => (
+    measurementPhoto ? URL.createObjectURL(measurementPhoto) : ''
+  ), [measurementPhoto])
 
   const activePresetCustomer = presetCustomer || createdCustomer
   const selectedCustomerId = editing ? form.customerId : activePresetCustomer?.id || ''
@@ -103,14 +105,9 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
   const customMeasurementFields = Object.keys(measurementValues).filter((field) => !currentMeasurementFields.includes(field))
 
   useEffect(() => {
-    if (!measurementPhoto) {
-      setMeasurementPhotoPreview('')
-      return undefined
-    }
-    const previewUrl = URL.createObjectURL(measurementPhoto)
-    setMeasurementPhotoPreview(previewUrl)
-    return () => URL.revokeObjectURL(previewUrl)
-  }, [measurementPhoto])
+    if (!measurementPhotoPreview) return undefined
+    return () => URL.revokeObjectURL(measurementPhotoPreview)
+  }, [measurementPhotoPreview])
 
   const handleMeasurementPhotoChange = (event) => {
     const file = event.target.files?.[0] || null

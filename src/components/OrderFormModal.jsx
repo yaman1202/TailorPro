@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Camera, ImagePlus, Plus, Ruler, Trash2, UserCheck, X } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { getLocalDateKey } from '../services/formatters.js'
@@ -79,6 +79,7 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
   const [savingOrder, setSavingOrder] = useState(false)
   const [measurementPhoto, setMeasurementPhoto] = useState(null)
   const [measurementPhotoError, setMeasurementPhotoError] = useState('')
+  const [measurementPhotoPreview, setMeasurementPhotoPreview] = useState('')
 
   const activePresetCustomer = presetCustomer || createdCustomer
   const selectedCustomerId = editing ? form.customerId : activePresetCustomer?.id || ''
@@ -100,6 +101,32 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
     .find((garment) => measurementFields[garment])
   const currentMeasurementFields = measurementFields[measurementGarment] || []
   const customMeasurementFields = Object.keys(measurementValues).filter((field) => !currentMeasurementFields.includes(field))
+
+  useEffect(() => {
+    if (!measurementPhoto) {
+      setMeasurementPhotoPreview('')
+      return undefined
+    }
+    const previewUrl = URL.createObjectURL(measurementPhoto)
+    setMeasurementPhotoPreview(previewUrl)
+    return () => URL.revokeObjectURL(previewUrl)
+  }, [measurementPhoto])
+
+  const handleMeasurementPhotoChange = (event) => {
+    const file = event.target.files?.[0] || null
+    setMeasurementPhotoError('')
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setMeasurementPhotoError('Choose a JPG, PNG or WEBP image.')
+      return
+    }
+    if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+      setMeasurementPhotoError('Photo must be greater than 0 bytes and 10 MB or smaller.')
+      return
+    }
+    setMeasurementPhoto(file)
+  }
 
   const addCustomMeasurementField = () => {
     const label = customFieldName.trim()
@@ -511,35 +538,31 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
                 </div>
               </div>
               <input
-                id="order-measurement-photo"
+                id="order-measurement-camera"
                 className="measurement-photo-input"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 capture="environment"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] || null
-                  setMeasurementPhotoError('')
-                  if (!file) return
-                  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-                    setMeasurementPhotoError('Choose a JPG, PNG or WEBP image.')
-                    event.target.value = ''
-                    return
-                  }
-                  if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
-                    setMeasurementPhotoError('Photo must be greater than 0 bytes and 10 MB or smaller.')
-                    event.target.value = ''
-                    return
-                  }
-                  setMeasurementPhoto(file)
-                }}
+                onChange={handleMeasurementPhotoChange}
+              />
+              <input
+                id="order-measurement-file"
+                className="measurement-photo-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleMeasurementPhotoChange}
               />
               <div className="measurement-photo-actions">
-                <label className="button button-secondary" htmlFor="order-measurement-photo"><Camera size={15} /> Take photo / choose file</label>
+                <label className="button button-secondary" htmlFor="order-measurement-camera"><Camera size={15} /> Take photo</label>
+                <label className="button button-secondary" htmlFor="order-measurement-file"><ImagePlus size={15} /> Upload from device</label>
               </div>
               {measurementPhoto && (
                 <div className="measurement-photo-selected">
-                  <ImagePlus size={16} />
-                  <span>{measurementPhoto.name} · {(measurementPhoto.size / 1024 / 1024).toFixed(2)} MB</span>
+                  {measurementPhotoPreview && <img src={measurementPhotoPreview} alt="Selected handwritten measurement sheet" className="measurement-photo-local-preview" />}
+                  <div className="measurement-photo-file-details">
+                    <span>{measurementPhoto.name}</span>
+                    <small>{(measurementPhoto.size / 1024 / 1024).toFixed(2)} MB</small>
+                  </div>
                   <button type="button" className="icon-button" aria-label="Remove selected measurement photo" onClick={() => setMeasurementPhoto(null)}><X size={15} /></button>
                 </div>
               )}

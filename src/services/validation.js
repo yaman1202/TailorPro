@@ -103,12 +103,12 @@ export function validateOrder(order, { existing, payments = [], isImport = false
   if (order.measurementPhoto != null && (!order.measurementPhoto || typeof order.measurementPhoto !== 'object' || Array.isArray(order.measurementPhoto))) errors.push('Order measurement photo metadata must be an object.')
   if (order.measurementPhoto != null) {
     const photo = order.measurementPhoto
-    const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt', 'downloadURL']
+    const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt']
     if (Object.keys(photo).some((key) => !allowed.includes(key))
       || typeof photo.path !== 'string' || typeof photo.name !== 'string'
       || !['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)
       || !Number.isSafeInteger(photo.size) || photo.size <= 0 || photo.size > 10 * 1024 * 1024
-      || typeof photo.uploadedAt !== 'string' || typeof photo.downloadURL !== 'string') {
+      || typeof photo.uploadedAt !== 'string') {
       errors.push('Order measurement photo metadata is invalid.')
     }
   }

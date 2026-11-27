@@ -24,25 +24,32 @@ JSON backup/export and restore are supported through the existing repository. Cl
 ```sh
 npm test
 npm run test:firestore-rules
+npm run test:storage-rules
 npm run lint
 npm run build
 ```
 
-`npm run test:firestore-rules` runs the application’s Rules and repository integration tests against the local Firestore Emulator. These tests do not access or modify production Firestore.
+`npm run test:firestore-rules` runs the application’s Rules and repository integration tests against the local Firestore Emulator. `npm run test:storage-rules` verifies owner-only measurement-photo uploads and reads against the local Firestore and Storage Emulators. These tests do not access or modify production Firebase data.
 
 ## Deployment checklist
 
 1. Provide the required `VITE_FIREBASE_*` variables and `VITE_DATA_REPOSITORY=firestore` to the build environment. Vite embeds these values at build time.
 2. Run the tests and production build above.
-3. Review `firestore.rules` against the exact production business path and current application fields, then verify the Rules tests in the Firestore Emulator.
+3. Review both `firestore.rules` and `storage.rules` against the production business path and owner document, then run both emulator test suites.
 4. Confirm the pre-provisioned owner document and owner UID in the Firebase Console without changing ownership.
 5. Compare the reviewed Rules source with the currently deployed Rules. Rules deployment is a separate, manual action; this project does not deploy Rules automatically. When approved, the Firebase CLI command is:
 
    ```sh
-   firebase deploy --only firestore:rules --project tailorpro-dev-802c2
+   firebase deploy --only firestore:rules,storage --project tailorpro-dev-802c2
    ```
 
-6. Confirm the hosting provider serves the built `dist/` output over HTTPS and that the production domain is authorized in Firebase Authentication.
+6. Configure Cloud Storage bucket CORS for the app origins in `cors.json` before using the authenticated `getBlob()` preview. Replace the production-domain placeholder with the exact deployed origin, then apply the file to the configured bucket:
+
+   ```sh
+   gcloud storage buckets update gs://tailorpro-dev-802c2.firebasestorage.app --cors-file=cors.json
+   ```
+
+7. On the first Storage Rules deployment, approve Firebase's cross-service Rules permission prompt so Storage Rules can read the owner document from Firestore. Then confirm the hosting provider serves the built `dist/` output over HTTPS and that the production domain is authorized in Firebase Authentication.
 7. Test owner login and read/write operations using a dedicated test record or an approved production-safe procedure. Do not test by importing data or creating records in the business workspace without authorization.
 
 Production Rules are not verified or changed by a local emulator test. If deployed Rules differ from `firestore.rules`, Firestore may reject application writes; TailorPro displays the failure and does not save to a local repository instead.

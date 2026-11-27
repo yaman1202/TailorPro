@@ -1,4 +1,4 @@
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage'
 import { getAuth } from 'firebase/auth'
 import firebaseApp from './firebaseApp.js'
 
@@ -36,8 +36,7 @@ export async function uploadOrderMeasurementPhoto({ orderId, file }) {
     contentType: file.type,
     customMetadata: { orderId, uploadedBy: uid },
   })
-  const downloadURL = await getDownloadURL(objectRef)
-  return { path, name, contentType: file.type, size: file.size, uploadedAt: new Date().toISOString(), downloadURL }
+  return { path, name, contentType: file.type, size: file.size, uploadedAt: new Date().toISOString() }
 }
 
 export async function deleteOrderMeasurementPhoto(path) {
@@ -46,10 +45,10 @@ export async function deleteOrderMeasurementPhoto(path) {
   await deleteObject(ref(storage, path))
 }
 
-export async function getOrderMeasurementPhotoUrl(path) {
+export async function getOrderMeasurementPhotoBlob(path) {
   if (typeof path !== 'string' || !path.startsWith(`businesses/${BUSINESS_ID}/orders/`)) {
     throw new Error('Measurement photo path is invalid.')
   }
   const { storage } = await getAuthorizedStorage()
-  return getDownloadURL(ref(storage, path))
+  return getBlob(ref(storage, path), MAX_PHOTO_BYTES)
 }

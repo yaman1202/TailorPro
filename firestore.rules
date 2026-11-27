@@ -125,7 +125,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'customerId', 'customer', 'garment', 'tailor', 'dueDate',
-          'amount', 'advance', 'status', 'createdAt', 'paidMinorUnits', 'paymentCount', 'measurementId'
+          'amount', 'advance', 'status', 'createdAt', 'paidMinorUnits', 'paymentCount', 'measurementId', 'measurementPhoto'
         ])
         && validText(data.customerId)
         && customerExistsAfter(businessId, data.customerId)
@@ -149,7 +149,19 @@ service cloud.firestore {
         && data.paidMinorUnits <= toMinor(data.amount)
         && (!('measurementId' in data)
           || (validText(data.measurementId)
-            && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)));
+            && measurementBelongsToCustomer(businessId, data.measurementId, data.customerId)))
+        && (!('measurementPhoto' in data)
+          || (data.measurementPhoto is map
+            && data.measurementPhoto.keys().hasOnly(['path', 'name', 'contentType', 'size', 'uploadedAt', 'downloadURL'])
+            && data.measurementPhoto.path is string
+            && data.measurementPhoto.path.matches('businesses/' + businessId + '/orders/' + documentId + '/measurement/measurement-[A-Za-z0-9-]+\\.(jpg|png|webp)')
+            && data.measurementPhoto.name is string
+            && data.measurementPhoto.contentType in ['image/jpeg', 'image/png', 'image/webp']
+            && data.measurementPhoto.size is int
+            && data.measurementPhoto.size > 0
+            && data.measurementPhoto.size <= 10 * 1024 * 1024
+            && data.measurementPhoto.uploadedAt is string
+            && data.measurementPhoto.downloadURL is string));
     }
 
     function statusRequiresTailor(status) {

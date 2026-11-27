@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CalendarDays, Check, CircleDollarSign, Scissors, UserRound } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, CircleDollarSign, Image as ImageIcon, Scissors, UserRound } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { formatCurrency } from '../services/formatters.js'
 import { getOrderBalance, getPaidForOrder } from '../services/orderAccounting.js'
 import { getAllowedOrderStatuses, orderStatuses } from '../services/orderWorkflow.js'
 import { Badge, Button, Card, PageHeading, Select } from '../components/UI.jsx'
 import CompleteOrderModal from '../components/CompleteOrderModal.jsx'
+import MeasurementPhotoPreview from '../components/MeasurementPhotoPreview.jsx'
 
 export default function OrderDetails() {
   const { orderId } = useParams()
@@ -107,6 +108,16 @@ export default function OrderDetails() {
             </div>
           </Card>
 
+
+          {order.measurementPhoto?.path && (
+            <Card>
+              <div className="card-heading">
+                <div><div className="eyebrow">WORKROOM REFERENCE</div><h2>Handwritten measurements</h2></div>
+                <ImageIcon size={18} />
+              </div>
+              <MeasurementPhotoPreview photo={order.measurementPhoto} />
+            </Card>
+          )}
           <Card>
             <div className="card-heading">
               <div><div className="eyebrow">PAYMENT ACTIVITY</div><h2>Payment history</h2></div>

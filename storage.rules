@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwner(businessId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/businesses/$(businessId))
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)).data.ownerUid == request.auth.uid;
+    }
+
+    match /businesses/{businessId}/orders/{orderId}/measurement/{fileName} {
+      allow read: if businessId == 'tailorpro-dev-802c' && isOwner(businessId);
+      allow create: if businessId == 'tailorpro-dev-802c'
+        && isOwner(businessId)
+        && fileName.matches('measurement-[A-Za-z0-9-]+\\.(jpg|png|webp)')
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp']
+        && request.resource.metadata.orderId == orderId
+        && request.resource.metadata.uploadedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if businessId == 'tailorpro-dev-802c' && isOwner(businessId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

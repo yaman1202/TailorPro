@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "node --test",
     "test:firestore-rules": "firebase emulators:exec --project demo-tailorpro-rules --only firestore \"node --test src/services/firebase/firestoreRules.emulator.js && node --test src/services/firebase/firestoreRepository.emulator.js\"",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:storage-rules": "firebase emulators:exec --project demo-tailorpro-rules --only firestore,storage \"node --test src/services/firebase/storageRules.emulator.js\""
   },
   "dependencies": {
     "firebase": "^13.1.0",

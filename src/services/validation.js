@@ -100,6 +100,18 @@ export function validateOrder(order, { existing, payments = [], isImport = false
   if (!hasText(order.customer)) errors.push('Order customer name is required.')
   if (!hasText(order.garment)) errors.push('Order garment is required.')
   if (order.measurementId != null && !hasText(order.measurementId)) errors.push('Order measurement profile reference must be text.')
+  if (order.measurementPhoto != null && (!order.measurementPhoto || typeof order.measurementPhoto !== 'object' || Array.isArray(order.measurementPhoto))) errors.push('Order measurement photo metadata must be an object.')
+  if (order.measurementPhoto != null) {
+    const photo = order.measurementPhoto
+    const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt']
+    if (Object.keys(photo).some((key) => !allowed.includes(key))
+      || typeof photo.path !== 'string' || typeof photo.name !== 'string'
+      || !['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)
+      || !Number.isSafeInteger(photo.size) || photo.size <= 0 || photo.size > 10 * 1024 * 1024
+      || typeof photo.uploadedAt !== 'string') {
+      errors.push('Order measurement photo metadata is invalid.')
+    }
+  }
   if (!isDate(order.dueDate)) errors.push('Order delivery date must use YYYY-MM-DD format.')
   if (!isDate(order.createdAt)) errors.push('Order creation date must use YYYY-MM-DD format.')
   if (isDate(order.dueDate) && isDate(order.createdAt) && order.dueDate < order.createdAt) {

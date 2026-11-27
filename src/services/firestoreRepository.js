@@ -50,6 +50,20 @@ function classifyFirestoreError(error) {
   )
 }
 
+
+function isValidMeasurementPhotoMetadata(photo, orderId) {
+  if (!photo || typeof photo !== 'object' || Array.isArray(photo)) return false
+  const allowed = ['path', 'name', 'contentType', 'size', 'uploadedAt']
+  return Object.keys(photo).every((key) => allowed.includes(key))
+    && typeof photo.path === 'string'
+    && photo.path === `businesses/${FIRESTORE_BUSINESS_ID}/orders/${orderId}/measurement/${photo.name}`
+    && typeof photo.name === 'string'
+    && /^measurement-[A-Za-z0-9-]+\.(jpg|png|webp)$/.test(photo.name)
+    && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)
+    && Number.isSafeInteger(photo.size) && photo.size > 0 && photo.size <= 10 * 1024 * 1024
+    && typeof photo.uploadedAt === 'string'
+}
+
 function malformed(message, cause) {
   return new FirestoreRepositoryError('malformed-data', message, cause)
 }
@@ -275,7 +289,7 @@ function assertBackupFields(data) {
   const allowedFields = {
     customers: ['id', 'name', 'phone', 'email', 'address', 'city', 'joined', 'archived'],
     measurements: ['id', 'customerId', 'customer', 'garment', 'date', 'version', 'unit', 'values'],
-    orders: ['id', 'customerId', 'customer', 'garment', 'measurementId', 'tailor', 'dueDate', 'amount', 'advance', 'status', 'createdAt'],
+    orders: ['id', 'customerId', 'customer', 'garment', 'measurementId', 'tailor', 'dueDate', 'amount', 'advance', 'status', 'createdAt', 'measurementPhoto'],
     payments: ['id', 'orderId', 'customer', 'date', 'amount', 'method', 'type'],
     staff: ['id', 'name', 'role', 'phone', 'email', 'active'],
     inventory: ['id', 'name', 'category', 'sku', 'quantity', 'unit', 'reorderAt', 'price'],
@@ -487,11 +501,28 @@ export class FirestoreRepository {
           return { ...result, data: refreshed.data }
         } catch (error) {
           const repositoryError = classifyFirestoreError(error)
-          if (!loadedResult && repositoryError.category === 'conflict' && attempt < 3) {
+          const retryableSnapshotConflict = repositoryError.category === 'conflict'
+          const possibleConcurrentPermissionConflict = repositoryError.category === 'permission-denied'
+
+          if (!loadedResult && attempt < 3
+            && (retryableSnapshotConflict || possibleConcurrentPermissionConflict)) {
             try {
-              loaded = await this.load()
+              // A concurrent transaction can commit between this transaction's reads and
+              // its Rules evaluation. Some emulator/runtime combinations report that race
+              // as permission-denied instead of aborted; retry only when the workspace
+              // revision proves that another transaction actually committed.
+              if (possibleConcurrentPermissionConflict) {
+                await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)))
+              }
+              const refreshed = await this.load()
+              if (possibleConcurrentPermissionConflict && refreshed.revision === loaded.revision) {
+                repositoryError.operation ||= operation
+                throw repositoryError
+              }
+              loaded = refreshed
               continue
-            } catch {
+            } catch (refreshError) {
+              if (refreshError === repositoryError) throw repositoryError
               repositoryError.operation ||= operation
               throw repositoryError
             }
@@ -626,6 +657,9 @@ export class FirestoreRepository {
 
   async createOrder(order, optionalInitialPayment, optionalMeasurement) {
     const newOrder = { ...order, id: order.id || makeRecordId('orders') }
+    if (newOrder.measurementPhoto && !isValidMeasurementPhotoMetadata(newOrder.measurementPhoto, newOrder.id)) {
+      throw new Error('Measurement photo metadata is invalid or does not belong to this order.')
+    }
     const initialPayment = optionalInitialPayment
       ? { ...optionalInitialPayment, id: optionalInitialPayment.id || makeRecordId('payments') }
       : null

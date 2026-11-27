@@ -117,15 +117,27 @@ export function AppProvider({ children, repository: providedRepository }) {
 
   const deleteRecord = useCallback(async (collection, id) => {
     try {
+      const orderBeingDeleted = collection === 'orders'
+        ? data?.orders?.find((order) => order.id === id)
+        : null
       const result = await repository.deleteRecord(collection, id)
       setData(result.data)
       setStorageState({ status: 'ready', error: '', raw: null })
+
+      if (orderBeingDeleted?.measurementPhoto?.path) {
+        try {
+          const { deleteOrderMeasurementPhoto } = await import('./firebase/orderMeasurementPhotos.js')
+          await deleteOrderMeasurementPhoto(orderBeingDeleted.measurementPhoto.path)
+        } catch (cleanupError) {
+          console.error('Order was deleted, but its measurement photo could not be removed from Firebase Storage:', cleanupError)
+        }
+      }
       return true
     } catch (error) {
       handleRepositoryError(error, 'delete')
       return false
     }
-  }, [repository, handleRepositoryError])
+  }, [repository, data, handleRepositoryError])
 
   const createOrder = useCallback(async (order, optionalInitialPayment, optionalMeasurement) => {
     try {

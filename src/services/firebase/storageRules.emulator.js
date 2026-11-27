@@ -75,7 +75,7 @@ test('a signed-in non-owner cannot upload or read a measurement photo', async ()
 
   const otherStorage = testEnvironment.authenticatedContext('different-user').storage()
   const otherRef = ref(otherStorage, OBJECT_PATH)
-  await assertFails(getBytes(otherRef))
+  await assertFails(getMetadata(otherRef))
   await assertFails(uploadBytes(ref(otherStorage, OBJECT_PATH.replace('measurement-test-1', 'measurement-test-2')), imageBytes, {
     contentType: 'image/jpeg',
     customMetadata: { orderId: ORDER_ID, uploadedBy: 'different-user' },

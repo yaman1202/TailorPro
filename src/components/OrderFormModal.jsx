@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Ruler, Trash2, UserCheck } from 'lucide-react'
+import { Camera, ImagePlus, Plus, Ruler, Trash2, UserCheck, X } from 'lucide-react'
 import useAppData from '../services/useAppData.jsx'
 import { getLocalDateKey } from '../services/formatters.js'
 import { createOrderId, normalizeMoney, paymentMethods } from '../services/orderAccounting.js'
@@ -77,6 +77,8 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
   const [customerFeedback, setCustomerFeedback] = useState(null)
   const [orderFeedback, setOrderFeedback] = useState('')
   const [savingOrder, setSavingOrder] = useState(false)
+  const [measurementPhoto, setMeasurementPhoto] = useState(null)
+  const [measurementPhotoError, setMeasurementPhotoError] = useState('')
 
   const activePresetCustomer = presetCustomer || createdCustomer
   const selectedCustomerId = editing ? form.customerId : activePresetCustomer?.id || ''
@@ -161,6 +163,7 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
     if (savingOrder || savingCustomer) return
     setSavingOrder(true)
     setOrderFeedback('')
+    setMeasurementPhotoError('')
     setCustomerFeedback((current) => (current?.type === 'success' ? current : null))
 
     const baseData = { customers, measurements, orders, payments, staff, inventory }
@@ -313,8 +316,30 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
       ? { orderId: id, customer: targetCustomer.name, date: today, amount: orderValues.advance, method: advanceMethod, type: 'Advance' }
       : undefined
 
+
+    let uploadedPhoto = null
+    if (measurementPhoto) {
+      try {
+        const { uploadOrderMeasurementPhoto } = await import('../services/firebase/orderMeasurementPhotos.js')
+        uploadedPhoto = await uploadOrderMeasurementPhoto({ orderId: id, file: measurementPhoto })
+        order.measurementPhoto = uploadedPhoto
+      } catch (error) {
+        setOrderFeedback(error.message || 'Measurement photo could not be uploaded. Please try again.')
+        setSavingOrder(false)
+        return
+      }
+    }
+
     const created = await createOrder(order, initialPayment, newMeasurement)
     if (!created) {
+      if (uploadedPhoto) {
+        try {
+          const { deleteOrderMeasurementPhoto } = await import('../services/firebase/orderMeasurementPhotos.js')
+          await deleteOrderMeasurementPhoto(uploadedPhoto.path)
+        } catch (cleanupError) {
+          console.error('Unable to clean up orphaned measurement photo:', cleanupError)
+        }
+      }
       setOrderFeedback('Order could not be saved. Review any error notice above and try again.')
       setSavingOrder(false)
       return
@@ -473,6 +498,53 @@ export default function OrderFormModal({ editing = null, presetCustomer = null, 
                 <small className="field-note">No saved profile for this customer and garment yet.</small>
               )}
             </FormField>
+          )}
+
+
+          {!editing && (
+            <section className="order-inline-measurements order-measurement-photo-section">
+              <div className="order-inline-measurements-heading">
+                <span className="measurement-record-icon"><Camera size={17} /></span>
+                <div>
+                  <strong>Handwritten measurement sheet</strong>
+                  <small>Take a photo of the handwritten measurements or choose an existing image. Optional, one photo per order.</small>
+                </div>
+              </div>
+              <input
+                id="order-measurement-photo"
+                className="measurement-photo-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null
+                  setMeasurementPhotoError('')
+                  if (!file) return
+                  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                    setMeasurementPhotoError('Choose a JPG, PNG or WEBP image.')
+                    event.target.value = ''
+                    return
+                  }
+                  if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+                    setMeasurementPhotoError('Photo must be greater than 0 bytes and 10 MB or smaller.')
+                    event.target.value = ''
+                    return
+                  }
+                  setMeasurementPhoto(file)
+                }}
+              />
+              <div className="measurement-photo-actions">
+                <label className="button button-secondary" htmlFor="order-measurement-photo"><Camera size={15} /> Take photo / choose file</label>
+              </div>
+              {measurementPhoto && (
+                <div className="measurement-photo-selected">
+                  <ImagePlus size={16} />
+                  <span>{measurementPhoto.name} · {(measurementPhoto.size / 1024 / 1024).toFixed(2)} MB</span>
+                  <button type="button" className="icon-button" aria-label="Remove selected measurement photo" onClick={() => setMeasurementPhoto(null)}><X size={15} /></button>
+                </div>
+              )}
+              {measurementPhotoError && <p className="customer-feedback customer-feedback-error" role="alert">{measurementPhotoError}</p>}
+            </section>
           )}
 
           {!editing && (

@@ -50,6 +50,6 @@ npm run build
    ```
 
 7. On the first Storage Rules deployment, approve Firebase's cross-service Rules permission prompt so Storage Rules can read the owner document from Firestore. Then confirm the hosting provider serves the built `dist/` output over HTTPS and that the production domain is authorized in Firebase Authentication.
-7. Test owner login and read/write operations using a dedicated test record or an approved production-safe procedure. Do not test by importing data or creating records in the business workspace without authorization.
+8. Test owner login and read/write operations using a dedicated test record or an approved production-safe procedure. Do not test by importing data or creating records in the business workspace without authorization.
 
 Production Rules are not verified or changed by a local emulator test. If deployed Rules differ from `firestore.rules`, Firestore may reject application writes; TailorPro displays the failure and does not save to a local repository instead.
